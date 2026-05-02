@@ -1,6 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 from .models import Users
+from webapp.admin import admin_site
 
 class UsersAdmin(UserAdmin):
     model=Users
@@ -29,8 +30,10 @@ class UsersAdmin(UserAdmin):
             "fields": (
                 "role",
                 "phone_number",
+                "email",
             )
         }),
     )
 
-admin.site.register(Users, UsersAdmin)
+# admin.site.register(Users, UsersAdmin)
+admin_site.register(Users, UsersAdmin)

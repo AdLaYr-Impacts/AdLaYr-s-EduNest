@@ -45,6 +45,9 @@ ADMIN_GROUPS = {
     'AddressBook': [
         'AddressBook',
     ],
+    'Users': [
+        'Users',
+    ],
 }
 
 def get_category_for_model(model_name):
