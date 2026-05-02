@@ -21,7 +21,8 @@ class Users(AbstractUser):
     gender = models.CharField(max_length=255, choices=UserGender.choices, null=True, blank=True)
     blood_group = models.CharField(max_length=255, null=True, blank=True)
     marital_status = models.CharField(max_length=255, null=True, blank=True, choices=MaritalStatus.choices)
-    # school = models.ForeignKey("School", on_delete=models.CASCADE, related_name="users") # multi school suuport
+    school = models.ForeignKey("webapp.School", on_delete=models.CASCADE, null=True, blank=True, related_name="school_user")
+    is_super_admin = models.BooleanField(default=False)
     is_email_verified = models.BooleanField(default=False)
     is_phone_verified = models.BooleanField(default=False)
     is_deleted = models.BooleanField(default=False)
