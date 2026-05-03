@@ -1,5 +1,5 @@
-from django.contrib import admin
 from django.urls import path, include
+from webapp.admin import admin_site
 from drf_spectacular.views import (
     SpectacularAPIView,
     SpectacularSwaggerView,
@@ -7,7 +7,7 @@ from drf_spectacular.views import (
 )
 
 urlpatterns = [
-    path('edunest/dev-admin/logup/', admin.site.urls),
+    path('edunest/dev-admin/access/', admin_site.urls),
     path('edunest/api/', include("permissions.urls")),
     path('edunest/api/', include("accounts.urls")),
     path('edunest/api/', include("webapp.urls")),
