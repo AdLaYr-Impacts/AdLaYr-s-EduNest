@@ -45,7 +45,8 @@ INSTALLED_APPS = [
     'permissions',
     'webapp',
     'accounts',
-    "drf_spectacular",
+    's_admin',
+    'drf_spectacular',
 ]
 
 MIDDLEWARE = [
