@@ -19,6 +19,11 @@ class SchoolSerializer(serializers.ModelSerializer):
     class Meta:
         model = School
         fields = '__all__'
+        extra_kwargs = {
+            'school_code': {'read_only': True},
+            'total_students': {'read_only': True},
+            'total_staffs': {'read_only': True},
+        }
 
     @transaction.atomic
     def create(self, validated_data):
