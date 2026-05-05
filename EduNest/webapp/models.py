@@ -69,7 +69,7 @@ class School(BaseModel):
     
 
 class SchoolContact(BaseModel):
-    school = models.ForeignKey(School, blank=True, null=True, on_delete=models.CASCADE, related_name="school_contact")
+    school = models.OneToOneField(School, blank=True, null=True, on_delete=models.CASCADE, related_name="school_contact")
     email = models.EmailField(null=True, blank=True)
     phone_number = models.CharField(max_length=15, null=True, blank=True)
     alternative_phone_number = models.CharField(max_length=15, null=True, blank=True)
@@ -91,7 +91,7 @@ class SchoolContact(BaseModel):
     
     
 class SchoolRegistration(BaseModel):
-    school = models.ForeignKey(School, blank=True, null=True, on_delete=models.CASCADE, related_name="school_registeration")
+    school = models.OneToOneField(School, blank=True, null=True, on_delete=models.CASCADE, related_name="school_registeration")
     registeration_number = models.CharField(max_length=255, null=True, blank=True)
     affiliation_number = models.CharField(max_length=255, null=True, blank=True)
     udise_code = models.CharField(max_length=20, null=True, blank=True)
@@ -262,7 +262,7 @@ class SubjectGroup(BaseModel):
     school = models.ForeignKey(School, blank=True, null=True, on_delete=models.SET_NULL, related_name="school_subject_groups")
     name = models.CharField(max_length=255, null=True, blank=True)
     code = models.CharField(max_length=15, null=True, blank=True)
-    classes = models.ManyToManyField(Subjects, null=True, blank=True)
+    classes = models.ManyToManyField(Subjects, blank=True)
     description = models.TextField(null=True, blank=True)
 
     class Meta:

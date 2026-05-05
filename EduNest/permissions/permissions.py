@@ -6,7 +6,8 @@ class IsSuperAdmin(BasePermission):
         return bool(
             request.user and
             request.user.is_authenticated and
-            request.user.role == UserRoles.SUPER_ADMIN
+            request.user.role == UserRoles.SUPER_ADMIN and
+            request.user.is_super_admin
         )
     
 class IsSchoolAdmin(BasePermission):
