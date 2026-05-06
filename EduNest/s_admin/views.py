@@ -1,18 +1,29 @@
-from rest_framework import viewsets, status
+from rest_framework import viewsets, status, filters
+from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.response import Response
 from webapp.models import School
 from .serializers import SchoolSerializer
 from permissions.permissions import IsSuperAdmin
 from common.helper import generate_school_code, get_next_school_sequence
+from common.pagination import StandardPagination, StandardPageNumberPagination
 
 class SchoolViewSet(viewsets.ModelViewSet):
     """
     API endpoint that allows Schools, including their Contacts and Registrations, 
-    to be view, create, edit & delete in a single request.
+    to be viewed, created, edited & deleted.
     """
-    queryset = School.objects.all()
+    
+    queryset = School.objects.select_related('school_contact', 'school_registeration').all()
     serializer_class = SchoolSerializer
     permission_classes = [IsSuperAdmin]
+    pagination_class = StandardPagination
+
+    # Adding support for Filtering, Searching, and Ordering
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['school_type', 'board', 'medium_of_instructions', 'is_active']
+    search_fields = ['name', 'short_name', 'school_code']
+    ordering_fields = ['created_at', 'name', 'total_students']
+    ordering = ['-created_at']
 
     def perform_create(self, serializer):
         short_name = self.request.data.get('short_name')
