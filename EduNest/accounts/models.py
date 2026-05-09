@@ -1,3 +1,4 @@
+import uuid
 from django.db import models
 from django.contrib.auth.models import AbstractUser
 from common.choices import (
@@ -8,7 +9,8 @@ from common.choices import (
 from django_countries.fields import CountryField
 
 class Users(AbstractUser):
-    
+
+    uuid = models.UUIDField(default=uuid.uuid4, unique=True, editable=False, db_index=True)
     role = models.CharField(max_length=20, choices=UserRoles.choices)
     email = models.EmailField(unique=True, null=True, blank=True)
     phone_number = models.CharField(max_length=15, blank=True, null=True)
@@ -26,6 +28,8 @@ class Users(AbstractUser):
     is_email_verified = models.BooleanField(default=False)
     is_phone_verified = models.BooleanField(default=False)
     is_deleted = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         verbose_name = 'User'
