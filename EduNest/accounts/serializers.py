@@ -8,7 +8,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     def get_token(cls, user):
         token = super().get_token(user)
         token['role'] = user.role
-        token['school'] = user.school.uuid if user.school else None
+        token['school'] = str(user.school.uuid) if user.school else None
 
         return token
 
@@ -17,23 +17,41 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         data['user'] = self.user.uuid
         data['role'] = self.user.role
         data['school'] = self.user.school.uuid if self.user.school else None
+        data['is_active'] = self.user.is_active
+        data['is_deleted'] = self.user.is_deleted
 
         return data
 
 class SchoolAdminSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(write_only=True, required=True, validators=[validate_password])
-    confirm_password = serializers.CharField(write_only=True, required=True)
+    password = serializers.CharField(write_only=True, required=False, validators=[validate_password])
+    confirm_password = serializers.CharField(write_only=True, required=False)
 
     class Meta:
         model = Users
         fields = [
             'id', 'uuid', 'username', 'first_name', 'last_name', 
-            'email', 'phone_number', 'password', 'confirm_password'
+            'email', 'phone_number', 'password', 'confirm_password',
+            'is_active'
         ]
 
     def validate(self, attrs):
-        if attrs['password'] != attrs['confirm_password']:
-            raise serializers.ValidationError({"password": "Password fields didn't match."})
+        password = attrs.get('password')
+        confirm_password = attrs.get('confirm_password')
+        errors = {}
+
+        if not self.instance:
+            if not password:
+                errors["password"] = "This field is required."
+            if not confirm_password:
+                errors["confirm_password"] = "This field is required."
+
+        if password or confirm_password:
+            if password != confirm_password:
+                errors["password"] = "Password fields didn't match."
+        
+        if errors:
+            raise serializers.ValidationError(errors)
+
         return attrs
 
     def create(self, validated_data):
