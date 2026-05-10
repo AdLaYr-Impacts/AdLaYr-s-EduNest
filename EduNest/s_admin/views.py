@@ -7,6 +7,16 @@ from permissions.permissions import IsSuperAdmin
 from common.helper import generate_school_code, get_next_school_sequence
 from common.pagination import StandardPagination, StandardPageNumberPagination
 
+from drf_spectacular.utils import extend_schema, extend_schema_view
+
+@extend_schema_view(
+    list=extend_schema(tags=['Schools']),
+    create=extend_schema(tags=['Schools']),
+    retrieve=extend_schema(tags=['Schools']),
+    update=extend_schema(tags=['Schools']),
+    partial_update=extend_schema(tags=['Schools']),
+    destroy=extend_schema(tags=['Schools']),
+)
 class SchoolViewSet(viewsets.ModelViewSet):
     """
     API endpoint that allows Schools, including their Contacts and Registrations, 
