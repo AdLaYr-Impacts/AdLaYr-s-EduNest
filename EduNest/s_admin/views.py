@@ -13,8 +13,9 @@ class SchoolViewSet(viewsets.ModelViewSet):
     to be viewed, created, edited & deleted.
     """
     
-    queryset = School.objects.select_related('school_contact', 'school_registeration').all()
+    queryset = School.objects.select_related('school_contact', 'school_registeration').prefetch_related('school_address').all()
     serializer_class = SchoolSerializer
+    lookup_field = 'uuid'
     permission_classes = [IsSuperAdmin]
     pagination_class = StandardPagination
 
