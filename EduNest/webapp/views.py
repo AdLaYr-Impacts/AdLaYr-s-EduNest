@@ -15,7 +15,8 @@ class SchoolAdminView(APIView):
     
     @extend_schema(
         summary="EduNest APIs",
-        description="To Test School Admin Permissions"
+        description="To Test School Admin Permissions",
+        tags=['Permissions Test']
     )
     def get(self, request, *args, **kwargs):
         return Response(
@@ -29,7 +30,8 @@ class ClassTeacherView(APIView):
 
     @extend_schema(
         summary="EduNest APIs",
-        description="To Test School Admin Permissions"
+        description="To Test School Admin Permissions",
+        tags=['Permissions Test']
     )
     def get(self, request, *args, **kwargs):
         return Response(

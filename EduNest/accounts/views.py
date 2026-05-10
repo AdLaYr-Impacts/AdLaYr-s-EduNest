@@ -8,9 +8,20 @@ from webapp.models import School
 from common.choices import UserRoles
 from permissions.permissions import IsSuperAdmin
 
+from drf_spectacular.utils import extend_schema, extend_schema_view
+
+@extend_schema(tags=['Authentication'])
 class RefreshTokenView(TokenObtainPairView):
     serializer_class = serializers.CustomTokenObtainPairSerializer
 
+@extend_schema_view(
+    list=extend_schema(tags=['School Admins']),
+    create=extend_schema(tags=['School Admins']),
+    retrieve=extend_schema(tags=['School Admins']),
+    update=extend_schema(tags=['School Admins']),
+    partial_update=extend_schema(tags=['School Admins']),
+    destroy=extend_schema(tags=['School Admins']),
+)
 class SchoolAdminViewSet(viewsets.ModelViewSet):
     serializer_class = serializers.SchoolAdminSerializer
     permission_classes = [IsSuperAdmin]
