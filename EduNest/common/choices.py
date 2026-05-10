@@ -55,7 +55,7 @@ class ClassBoard(models.TextChoices):
     STATE_BOARD = "STATE_BOARD", "State_board"
     CBSE = "CBSE", "CBSE"
     ICSE = "ICSE", "ICSE"
-    IB = "IB", "International Baccalaureate"
+    IB = "IB", "International_baccalaureate"
     IGCSE = "IGCSE", "IGCSE"
 
 # Address Type

@@ -8,15 +8,15 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     def get_token(cls, user):
         token = super().get_token(user)
         token['role'] = user.role
-        token['school_id'] = user.school.id if user.school else None
+        token['school'] = user.school.uuid if user.school else None
 
         return token
 
     def validate(self, attrs):
         data = super().validate(attrs)
-        data['user_id'] = self.user.id
+        data['user'] = self.user.uuid
         data['role'] = self.user.role
-        data['school_id'] = self.user.school.id if self.user.school else None
+        data['school'] = self.user.school.uuid if self.user.school else None
 
         return data
 
