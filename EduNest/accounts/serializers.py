@@ -33,6 +33,9 @@ class SchoolAdminSerializer(serializers.ModelSerializer):
             'email', 'phone_number', 'password', 'confirm_password',
             'is_active'
         ]
+        extra_kwargs = {
+            'username': {'read_only': True},
+        }
 
     def validate(self, attrs):
         password = attrs.get('password')

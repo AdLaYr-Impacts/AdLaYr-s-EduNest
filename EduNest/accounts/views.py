@@ -6,6 +6,7 @@ from . import serializers
 from .models import Users
 from webapp.models import School
 from common.choices import UserRoles
+from common.helper import generate_user_code
 from permissions.permissions import IsSuperAdmin
 
 from drf_spectacular.utils import extend_schema, extend_schema_view
@@ -40,10 +41,16 @@ class SchoolAdminViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         school_id = self.kwargs.get('school_id')
         school = get_object_or_404(School, uuid=school_id)
+        user_code = generate_user_code(school, UserRoles.SCHOOL_ADMIN)
         serializer.save(
             school=school,
-            role=UserRoles.SCHOOL_ADMIN
+            role=UserRoles.SCHOOL_ADMIN,
+            username=user_code
         )
+
+    def perform_update(self, serializer):
+        # To ensure username (user code) is not updated if passed in request data
+        serializer.save(username=serializer.instance.username)
 
     def perform_destroy(self, instance):
         instance.is_deleted = True
