@@ -8,10 +8,12 @@ class UsersAdmin(UserAdmin):
 
     list_display = ["id", "username", "role", "school", "is_super_admin", "is_active"]
     list_filter = ["username", "role", "school", "is_super_admin"]
+    readonly_fields = ["uuid"]
 
     fieldsets = UserAdmin.fieldsets + (
         ("Additional Info", {
             "fields": (
+                "uuid",
                 "role",
                 "school",
                 "is_super_admin",
