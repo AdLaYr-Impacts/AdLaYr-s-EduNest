@@ -10,7 +10,7 @@ urlpatterns = [
     path('edunest/dev-admin/access/', admin_site.urls),
     path('edunest/api/', include("permissions.urls")),
     path('edunest/api/accounts/', include("accounts.urls")),
-    path('edunest/api/', include("webapp.urls")),
+    path('edunest/api/schools/<uuid:school_id>/', include("webapp.urls")),
     path('edunest/api/s_admin/', include("s_admin.urls")),
     path('edunest/api/schema/', SpectacularAPIView.as_view(), name='schema'),
     path('edunest/api/swagger/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),

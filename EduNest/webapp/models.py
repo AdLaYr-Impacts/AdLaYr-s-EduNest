@@ -143,7 +143,8 @@ class TeacherEducationDetails(BaseModel):
         null=True, blank=True,
         validators=[MinValueValidator(1900), MaxValueValidator(current_year)]
     )
-    pass_percentage = models.PositiveSmallIntegerField(
+    pass_percentage = models.DecimalField(
+        max_digits=5, decimal_places=2,
         null=True, blank=True, validators=[MaxValueValidator(100)]
     )
 
@@ -180,8 +181,8 @@ class TeacherExperianceDetails(BaseModel):
     
 class TeacherEmploymentDetails(BaseModel):
     teacher = models.ForeignKey(SchoolTeacher, on_delete=models.CASCADE, related_name="teacher_employment")
-    basic_salary = models.PositiveIntegerField(null=True, blank=True)
-    allowance = models.PositiveIntegerField(null=True, blank=True)
+    basic_salary = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    allowance = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     bank_name = models.CharField(max_length=255, null=True, blank=True)
     bank_account_number = models.CharField(max_length=30, null=True, blank=True)
     ifsc_code = models.CharField(max_length=15, null=True, blank=True)
@@ -245,8 +246,8 @@ class ClassSubjects(BaseModel):
     teacher = models.ForeignKey(SchoolTeacher, null=True, blank=True, on_delete=models.SET_NULL, related_name="subject_teacher")
     is_optional = models.BooleanField(default=False)
     is_language = models.BooleanField(default=False)
-    max_marks = models.IntegerField(default=100)
-    pass_marks = models.IntegerField(default=35)
+    max_marks = models.FloatField(default=100)
+    pass_marks = models.FloatField(default=35)
     sort_order = models.IntegerField(default=0)
 
     class Meta:
@@ -529,8 +530,8 @@ class ExamSchedule(BaseModel):
         related_name="schedules"
     )
     subject = models.ForeignKey(ClassSubjects, on_delete=models.CASCADE, related_name="exam_subjects") # need validation here
-    max_marks = models.PositiveIntegerField(default=100)
-    pass_marks = models.PositiveIntegerField()
+    max_marks = models.FloatField(default=100)
+    pass_marks = models.FloatField()
     exam_date = models.DateField()
     session = models.CharField(max_length=10, choices=ExamSessions.choices, null=True, blank=True)
     start_time = models.TimeField(null=True, blank=True)
