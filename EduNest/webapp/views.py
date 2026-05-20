@@ -57,6 +57,13 @@ class TeacherViewSet(viewsets.ModelViewSet):
             context['school'] = self.get_school()
         return context
 
+    def update(self, request, *args, **kwargs):
+        """
+        Allow partial updates for PUT requests to support resetting credentials.
+        """
+        kwargs['partial'] = True
+        return super().update(request, *args, **kwargs)
+
     def perform_destroy(self, instance):
         user = instance.user
         user.is_deleted = True

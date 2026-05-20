@@ -76,8 +76,8 @@ class TeacherAddressSerializer(serializers.ModelSerializer):
 class TeacherSerializer(serializers.ModelSerializer):
     first_name = serializers.CharField(source='user.first_name')
     last_name = serializers.CharField(source='user.last_name')
-    email = serializers.EmailField(source='user.email')
-    phone_number = serializers.CharField(source='user.phone_number')
+    email = serializers.EmailField(source='user.email', required=False, allow_null=True, allow_blank=True)
+    phone_number = serializers.CharField(source='user.phone_number', required=False, allow_null=True, allow_blank=True)
     alternative_phone_number = serializers.CharField(source='user.alternative_phone_number', required=False, allow_blank=True)
     profile_picture = serializers.ImageField(source='user.profile_picture', required=False, allow_null=True)
     aadhaar_number = serializers.CharField(source='user.aadhaar_number', required=False, allow_blank=True)
@@ -118,20 +118,30 @@ class TeacherSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Aadhaar number must be 12 digits.")
         return value
 
+    def validate_email(self, value):
+        if value == "":
+            return None
+        return value
+
     def validate_phone_number(self, value):
+        if value == "":
+            return None
         if value and not re.match(r'^\d{10,15}$', value):
             raise serializers.ValidationError("Invalid phone number format.")
         return value
 
     def validate(self, data):
         user_data = data.get('user', {})
+        password = data.get('password')
+        confirm_password = data.get('confirm_password')
         
-        # Password validation for creation
+        # Password validation
         if not self.instance:
-            password = data.get('password')
-            confirm_password = data.get('confirm_password')
             if not password or not confirm_password:
                 raise serializers.ValidationError({"password": "Password and confirm password are required for new teacher."})
+        
+        if password or confirm_password:
+            # Update or Creation mode with password provided
             if password != confirm_password:
                 raise serializers.ValidationError({"password": "Passwords do not match."})
             try:
@@ -192,6 +202,8 @@ class TeacherSerializer(serializers.ModelSerializer):
             user=user,
             school=school,
             teacher_code=username,
+            is_class_teacher=False,
+            is_principal=False,
             **validated_data
         )
         
@@ -231,8 +243,15 @@ class TeacherSerializer(serializers.ModelSerializer):
         experience_data = validated_data.pop('teacher_experiance', None)
         employment_data = validated_data.pop('teacher_employment', None)
         
+        # Handle Account Credentials
+        password = validated_data.pop('password', None)
+        validated_data.pop('confirm_password', None)
+        
         # Update User
         user = instance.user
+        if password:
+            user.set_password(password)
+        
         for attr, value in user_data.items():
             setattr(user, attr, value)
         user.save()
@@ -240,6 +259,8 @@ class TeacherSerializer(serializers.ModelSerializer):
         # Update SchoolTeacher
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
+        instance.is_class_teacher=False
+        instance.is_principal=False
         instance.save()
         
         # Update Address
