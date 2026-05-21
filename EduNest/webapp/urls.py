@@ -1,7 +1,15 @@
 from django.urls import path
-from . import views
+from .views import TeacherViewSet
 
 urlpatterns = [
-    path("school_admin/", views.SchoolAdminView.as_view()),
-    path("class_teacher/", views.ClassTeacherView.as_view()),
+    path('teachers/', TeacherViewSet.as_view({
+        'get': 'list',
+        'post': 'create'
+    })),
+    path('teachers/<uuid:uuid>/', TeacherViewSet.as_view({
+        'get': 'retrieve',
+        'put': 'update',
+        'patch': 'partial_update',
+        'delete': 'destroy'
+    })),
 ]

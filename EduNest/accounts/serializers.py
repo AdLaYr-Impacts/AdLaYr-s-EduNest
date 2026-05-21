@@ -30,7 +30,7 @@ class SchoolAdminSerializer(serializers.ModelSerializer):
         model = Users
         fields = [
             'id', 'uuid', 'username', 'first_name', 'last_name', 
-            'email', 'phone_number', 'password', 'confirm_password',
+            'email', 'phone_number', 'profile_picture', 'password', 'confirm_password',
             'is_active'
         ]
         extra_kwargs = {
