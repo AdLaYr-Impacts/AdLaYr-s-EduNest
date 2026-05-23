@@ -11,11 +11,14 @@ from webapp.models import (
     TeacherExperianceDetails, 
     TeacherEmploymentDetails,
     AddressBook,
-    School
+    School,
+    SchoolClass
 )
 from common.choices import UserRoles, UserGender, MaritalStatus, EmployementType, EmployeStatus, AddressType
 from common.helper import generate_user_code
 
+
+# School Teacher
 class TeacherEducationSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(source='uuid', read_only=False, required=False)
 
@@ -332,5 +335,171 @@ class TeacherSerializer(serializers.ModelSerializer):
                     TeacherEmploymentDetails.objects.filter(uuid=emp_uuid).update(**emp)
                 else:
                     TeacherEmploymentDetails.objects.create(teacher=instance, **emp)
+
+        return instance
+
+
+# School Class
+class TeacherMiniSerializer(serializers.ModelSerializer):
+    full_name = serializers.CharField(source='user.get_full_name', read_only=True)
+
+    class Meta:
+        model = SchoolTeacher
+        fields = ['uuid', 'full_name', 'teacher_code']
+
+class SchoolClassSerializer(serializers.ModelSerializer):
+    class_teacher_uuid = serializers.SlugRelatedField(
+        slug_field='uuid', 
+        queryset=SchoolTeacher.objects.all(),
+        source='class_teacher',
+        required=False,
+        allow_null=True
+    )
+    assistant_teachers_uuids = serializers.SlugRelatedField(
+        slug_field='uuid',
+        queryset=SchoolTeacher.objects.all(),
+        source='assistant_teacher',
+        many=True,
+        required=False
+    )
+    
+    # For response
+    class_teacher = TeacherMiniSerializer(read_only=True)
+    assistant_teacher = TeacherMiniSerializer(many=True, read_only=True)
+    
+    class Meta:
+        model = SchoolClass
+        fields = [
+            'uuid', 'class_name', 'section', 'academic_year', 'medium', 
+            'board', 'max_strength', 'whatsapp_group_link', 'classroom_number', 
+            'smart_class_enabled', 'class_color_code', 'class_teacher_uuid',
+            'assistant_teachers_uuids', 'class_teacher', 'assistant_teacher'
+        ]
+        read_only_fields = ['uuid']
+
+    def validate_class_name(self, value):
+        if value and not value.strip():
+            raise serializers.ValidationError("Class name cannot be whitespace only.")
+        return value
+
+    def validate_section(self, value):
+        if value and not value.strip():
+            raise serializers.ValidationError("Section cannot be whitespace only.")
+        return value
+
+    def validate_max_strength(self, value):
+        if value is not None and value < 0:
+            raise serializers.ValidationError("Max strength cannot be negative.")
+        return value
+
+    def validate(self, data):
+        school = self.context.get('school')
+        class_name = data.get('class_name', self.instance.class_name if self.instance else None)
+        section = data.get('section', self.instance.section if self.instance else None)
+        academic_year = data.get('academic_year', self.instance.academic_year if self.instance else None)
+        
+        if not class_name:
+            raise serializers.ValidationError({"class_name": "This field is required."})
+        if not section:
+            raise serializers.ValidationError({"section": "This field is required."})
+        if not academic_year:
+            raise serializers.ValidationError({"academic_year": "This field is required."})
+
+        # Duplicate validation within same school
+        query = SchoolClass.objects.filter(
+            school=school,
+            class_name__iexact=class_name,
+            section__iexact=section,
+            academic_year=academic_year
+        )
+        
+        if self.instance:
+            query = query.exclude(pk=self.instance.pk)
+            
+        if query.exists():
+            raise serializers.ValidationError(
+                f"Class {class_name} - Section {section} for Academic Year {academic_year} already exists in this school"
+            )
+            
+        # Validate that the teachers belong to the same school
+        class_teacher = data.get('class_teacher')
+        if class_teacher and class_teacher.school != school:
+            raise serializers.ValidationError({"class_teacher_uuid": "Teacher does not belong to this school."})
+            
+        assistant_teachers = data.get('assistant_teacher', [])
+        for teacher in assistant_teachers:
+            if teacher.school != school:
+                raise serializers.ValidationError({"assistant_teachers_uuids": f"Teacher {teacher.teacher_code} does not belong to this school."})
+
+        return data
+
+    @transaction.atomic
+    def create(self, validated_data):
+        school = self.context.get('school')
+        assistant_teachers = validated_data.pop('assistant_teacher', [])
+
+        school_class = SchoolClass.objects.create(
+            school=school,
+            **validated_data
+        )
+
+        if assistant_teachers:
+            school_class.assistant_teacher.set(assistant_teachers)
+
+        # Update teacher statuses
+        if school_class.class_teacher:
+            school_class.class_teacher.is_class_teacher = True
+            school_class.class_teacher.save()
+
+        for teacher in assistant_teachers:
+            teacher.is_assistant_class_teacher = True
+            teacher.save()
+
+        return school_class
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        old_class_teacher = instance.class_teacher
+        old_assistant_teachers = set(instance.assistant_teacher.all())
+
+        assistant_teachers = validated_data.pop('assistant_teacher', None)
+
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+
+        if assistant_teachers is not None:
+            instance.assistant_teacher.set(assistant_teachers)
+            new_assistant_teachers = set(assistant_teachers)
+        else:
+            new_assistant_teachers = old_assistant_teachers
+
+        # Update Class Teacher Status
+        new_class_teacher = instance.class_teacher
+        if old_class_teacher != new_class_teacher:
+            if old_class_teacher:
+                still_class_teacher = SchoolClass.objects.filter(class_teacher=old_class_teacher).exclude(pk=instance.pk).exists()
+                if not still_class_teacher:
+                    old_class_teacher.is_class_teacher = False
+                    old_class_teacher.save()
+
+            if new_class_teacher:
+                new_class_teacher.is_class_teacher = True
+                new_class_teacher.save()
+
+        # Update Assistant Teacher Status
+        # Teachers removed
+        removed_assistants = old_assistant_teachers - new_assistant_teachers
+        for teacher in removed_assistants:
+            still_assistant = SchoolClass.objects.filter(assistant_teacher=teacher).exclude(pk=instance.pk).exists()
+            if not still_assistant:
+                teacher.is_assistant_class_teacher = False
+                teacher.save()
+
+        # Teachers added
+        added_assistants = new_assistant_teachers - old_assistant_teachers
+        for teacher in added_assistants:
+            teacher.is_assistant_class_teacher = True
+            teacher.save()
 
         return instance
