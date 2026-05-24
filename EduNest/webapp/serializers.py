@@ -421,15 +421,20 @@ class SchoolClassSerializer(serializers.ModelSerializer):
                 f"Class {class_name} - Section {section} for Academic Year {academic_year} already exists in this school"
             )
             
-        # Validate that the teachers belong to the same school
+        # Validate that the teachers belong to the same school and are not deleted
         class_teacher = data.get('class_teacher')
-        if class_teacher and class_teacher.school != school:
-            raise serializers.ValidationError({"class_teacher_uuid": "Teacher does not belong to this school."})
+        if class_teacher:
+            if class_teacher.school != school:
+                raise serializers.ValidationError({"class_teacher_uuid": "Teacher does not belong to this school."})
+            if class_teacher.user.is_deleted:
+                raise serializers.ValidationError({"class_teacher_uuid": f"The teacher '{class_teacher.user.get_full_name()}' cannot be assigned because their account has been deactivated or deleted."})
             
         assistant_teachers = data.get('assistant_teacher', [])
         for teacher in assistant_teachers:
             if teacher.school != school:
                 raise serializers.ValidationError({"assistant_teachers_uuids": f"Teacher {teacher.teacher_code} does not belong to this school."})
+            if teacher.user.is_deleted:
+                raise serializers.ValidationError({"assistant_teachers_uuids": f"The teacher '{teacher.user.get_full_name()}' cannot be assigned as an assistant because their account has been deactivated or deleted."})
 
         return data
 
