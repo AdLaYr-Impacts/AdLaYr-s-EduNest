@@ -122,6 +122,7 @@ class SchoolTeacher(BaseModel):
     employment_type = models.CharField(max_length=30, choices=EmployementType.choices)
     status = models.CharField(max_length=30, null=True, blank=True, choices=EmployeStatus.choices)
     is_class_teacher = models.BooleanField(default=False)
+    is_assistant_class_teacher = models.BooleanField(default=False)
     is_principal = models.BooleanField(default=False)
 
     class Meta:
@@ -221,7 +222,7 @@ class SchoolClass(BaseModel):
         verbose_name_plural = 'Classes'
 
     def __str__(self):
-        return f"[{self.id}] class: {self,self.class_name} {self.section} school id: {self.school.id}"
+        return f"[{self.id}] class: {self.class_name} {self.section} school id: {self.school.id}"
     
 
 class Subjects(BaseModel):

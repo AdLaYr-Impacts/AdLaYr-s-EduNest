@@ -4,8 +4,21 @@ from django.db import transaction
 from django.core.exceptions import ValidationError
 from django.apps import apps
 from django.db.models.functions import Length
+from django.shortcuts import get_object_or_404
 from common.choices import UserRoles
 from webapp.models import School
+from rest_framework.exceptions import PermissionDenied
+
+
+def get_school(self):
+    school_uuid = self.kwargs.get('school_id')
+    school = get_object_or_404(School, uuid=school_uuid)
+    
+    if self.request.user.school != school:
+        raise PermissionDenied("You do not have permission to access this school's data.")
+    
+    return school
+
 
 def generate_school_code(short_name, sequence_number):
     """
