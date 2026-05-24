@@ -2,8 +2,9 @@ from rest_framework import viewsets, status, filters
 from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
 
+from django.db.models import Count
 from .models import SchoolTeacher, SchoolClass
-from .serializers import TeacherSerializer, SchoolClassSerializer
+from .serializers import TeacherSerializer, SchoolClassSerializer, TeacherSummarySerializer
 from permissions.permissions import IsSchoolAdmin
 from common.pagination import StandardPagination
 from common.helper import get_school
@@ -96,3 +97,34 @@ class SchoolClassViewSet(viewsets.ModelViewSet):
         context = super().get_serializer_context()
         context['school'] = get_school(self)
         return context
+
+
+@extend_schema_view(
+    list=extend_schema(
+        tags=['Teachers'],
+        summary="List all teachers belonging to the school with their class assignments",
+        description="Returns a list of teachers with counts of classes where they are class teachers or assistant teachers."
+    ),
+)
+class TeacherSummaryViewSet(viewsets.ReadOnlyModelViewSet):
+    serializer_class = TeacherSummarySerializer
+    permission_classes = [IsSchoolAdmin]
+    pagination_class = StandardPagination
+    lookup_field = 'uuid'
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ['user__first_name', 'user__last_name', 'teacher_code']
+    ordering_fields = ['created_at', 'class_teacher_count', 'assistant_class_teacher_count']
+    ordering = ['-created_at']
+
+    def get_queryset(self):
+        school = get_school(self)
+        return SchoolTeacher.objects.filter(
+            school=school,
+            user__is_deleted=False
+        ).select_related(
+            'user'
+        ).annotate(
+            class_teacher_count=Count('classes_as_class_teacher', distinct=True),
+            assistant_class_teacher_count=Count('classes_as_assistant_teacher', distinct=True)
+        )
+
