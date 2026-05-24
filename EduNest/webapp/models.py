@@ -203,8 +203,8 @@ class TeacherEmploymentDetails(BaseModel):
 
 class SchoolClass(BaseModel):
     school = models.ForeignKey(School, blank=True, null=True, on_delete=models.SET_NULL, related_name="school_class")
-    class_teacher = models.ForeignKey(SchoolTeacher, null=True, blank=True, on_delete=models.SET_NULL, related_name="class_teacher")
-    assistant_teacher = models.ManyToManyField(SchoolTeacher, related_name="assistant_teacher")
+    class_teacher = models.ForeignKey(SchoolTeacher, null=True, blank=True, on_delete=models.SET_NULL, related_name="classes_as_class_teacher")
+    assistant_teacher = models.ManyToManyField(SchoolTeacher, related_name="classes_as_assistant_teacher")
     class_name = models.CharField(max_length=255, null=True, blank=True)
     section = models.CharField(max_length=255, null=True, blank=True)
     academic_year = models.PositiveSmallIntegerField(null=True, blank=True)
@@ -243,7 +243,7 @@ class Subjects(BaseModel):
 
 class ClassSubjects(BaseModel):
     subject = models.ForeignKey(Subjects, null=True, blank=True, on_delete=models.CASCADE, related_name="class_subjects")
-    subject_class = models.ForeignKey(SchoolClass, null=True, blank=True, on_delete=models.CASCADE, related_name="subject_class")
+    subject_class = models.ForeignKey(SchoolClass, null=True, blank=True, on_delete=models.CASCADE, related_name="class_as_subject_class")
     teacher = models.ForeignKey(SchoolTeacher, null=True, blank=True, on_delete=models.SET_NULL, related_name="subject_teacher")
     is_optional = models.BooleanField(default=False)
     is_language = models.BooleanField(default=False)
