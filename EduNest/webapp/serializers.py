@@ -22,6 +22,7 @@ from common.choices import (
     AddressType,
     SubjectType
 )
+from drf_spectacular.utils import extend_schema_field
 from common.helper import generate_user_code
 
 
@@ -588,3 +589,24 @@ class SubjectSerializer(serializers.ModelSerializer):
     @transaction.atomic
     def update(self, instance, validated_data):
         return super().update(instance, validated_data)
+
+
+class ClassListSerializer(serializers.ModelSerializer):
+    name = serializers.SerializerMethodField()
+    uuid = serializers.UUIDField(read_only=True)
+
+    class Meta:
+        model = SchoolClass
+        fields = ['uuid', 'name']
+
+    @extend_schema_field(serializers.CharField)
+    def get_name(self, obj):
+        return f"{obj.class_name} - {obj.section}" if obj.section else obj.class_name
+
+
+class SubjectListSerializer(serializers.ModelSerializer):
+    uuid = serializers.UUIDField(read_only=True)
+
+    class Meta:
+        model = Subjects
+        fields = ['uuid', 'code', 'name']

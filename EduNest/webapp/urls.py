@@ -1,5 +1,8 @@
 from django.urls import path
-from .views import TeacherViewSet, SchoolClassViewSet, TeacherSummaryViewSet, SubjectViewSet
+from .views import (
+    TeacherViewSet, SchoolClassViewSet, TeacherSummaryViewSet, 
+    SubjectViewSet, SubjectListViews
+)
 
 urlpatterns = [
     path('teachers/', TeacherViewSet.as_view({
@@ -34,5 +37,11 @@ urlpatterns = [
         'put': 'update',
         'patch': 'partial_update',
         'delete': 'destroy'
+    })),
+    path('subject-list/classes/', SubjectListViews.as_view({
+        'get': 'classes'
+    })),
+    path('subject-list/subjects/', SubjectListViews.as_view({
+        'get': 'subjects'
     })),
 ]

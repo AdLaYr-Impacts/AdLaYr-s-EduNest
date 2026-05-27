@@ -1,10 +1,14 @@
 from rest_framework import viewsets, status, filters
 from rest_framework.response import Response
+from rest_framework.decorators import action
 from django_filters.rest_framework import DjangoFilterBackend
 
 from django.db.models import Count
 from .models import SchoolTeacher, SchoolClass, Subjects
-from .serializers import TeacherSerializer, SchoolClassSerializer, TeacherSummarySerializer, SubjectSerializer
+from .serializers import (
+    TeacherSerializer, SchoolClassSerializer, TeacherSummarySerializer, 
+    SubjectSerializer, ClassListSerializer, SubjectListSerializer
+)
 from permissions.permissions import IsSchoolAdmin
 from common.pagination import StandardPagination
 from common.helper import get_school
@@ -30,6 +34,8 @@ class TeacherViewSet(viewsets.ModelViewSet):
     ordering_fields = ['created_at', 'joining_date']
 
     def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False):
+            return SchoolTeacher.objects.none()
         school = get_school(self)
         return SchoolTeacher.objects.filter(
             school=school,
@@ -84,6 +90,8 @@ class SchoolClassViewSet(viewsets.ModelViewSet):
     ordering_fields = ['created_at', 'class_name', 'academic_year']
 
     def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False):
+            return SchoolClass.objects.none()
         school = get_school(self)
         return SchoolClass.objects.filter(
             school=school
@@ -102,7 +110,7 @@ class SchoolClassViewSet(viewsets.ModelViewSet):
 @extend_schema_view(
     list=extend_schema(
         tags=['Teachers'],
-        summary="List all teachers belonging to the school with their class assignments",
+        summary="List all teachers belonging to the school with their class assignment count",
         description="Returns a list of teachers with counts of classes where they are class teachers or assistant teachers."
     ),
 )
@@ -117,6 +125,8 @@ class TeacherSummaryViewSet(viewsets.ReadOnlyModelViewSet):
     ordering = ['-created_at']
 
     def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False):
+            return SchoolTeacher.objects.none()
         school = get_school(self)
         return SchoolTeacher.objects.filter(
             school=school,
@@ -148,6 +158,8 @@ class SubjectViewSet(viewsets.ModelViewSet):
     ordering_fields = ['created_at', 'name', 'code']
 
     def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False):
+            return Subjects.objects.none()
         school = get_school(self)
         return Subjects.objects.filter(
             school=school
@@ -161,3 +173,54 @@ class SubjectViewSet(viewsets.ModelViewSet):
     def update(self, request, *args, **kwargs):
         kwargs['partial'] = True
         return super().update(request, *args, **kwargs)
+
+
+@extend_schema_view(
+    classes=extend_schema(
+        tags=['Subjects'],
+        summary="Class lists to create subjects",
+        responses={200: ClassListSerializer(many=True)}
+    ),
+    subjects=extend_schema(
+        tags=['Subjects'],
+        summary="Subject lists to create subjects",
+        responses={200: SubjectListSerializer(many=True)}
+    )
+)
+class SubjectListViews(viewsets.ViewSet):
+    pagination_class = StandardPagination
+    permission_classes = [IsSchoolAdmin]
+
+    @action(detail=False, methods=['get'])
+    def classes(self, request, *args, **kwargs):
+        school = get_school(self)
+        queryset = SchoolClass.objects.filter(
+            school=school, 
+            is_active=True
+        ).only('uuid', 'class_name', 'section')
+
+        paginator = self.pagination_class()
+        page = paginator.paginate_queryset(queryset, request, view=self)
+        if page is not None:
+            serializer = ClassListSerializer(page, many=True)
+            return paginator.get_paginated_response(serializer.data)
+
+        serializer = ClassListSerializer(queryset, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['get'])
+    def subjects(self, request, *args, **kwargs):
+        school = get_school(self)
+        queryset = Subjects.objects.filter(
+            school=school, 
+            is_active=True
+        ).only('uuid', 'code', 'name')
+
+        paginator = self.pagination_class()
+        page = paginator.paginate_queryset(queryset, request, view=self)
+        if page is not None:
+            serializer = SubjectListSerializer(page, many=True)
+            return paginator.get_paginated_response(serializer.data)
+
+        serializer = SubjectListSerializer(queryset, many=True)
+        return Response(serializer.data)

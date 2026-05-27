@@ -30,6 +30,8 @@ class SchoolAdminViewSet(viewsets.ModelViewSet):
     lookup_url_kwarg = 'id'
 
     def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False):
+            return Users.objects.none()
         school_id = self.kwargs.get('school_id')
         get_object_or_404(School, uuid=school_id)
         return Users.objects.filter(

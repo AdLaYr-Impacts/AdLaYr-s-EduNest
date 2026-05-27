@@ -11,6 +11,8 @@ from rest_framework.exceptions import PermissionDenied
 
 
 def get_school(self):
+    if getattr(self, "swagger_fake_view", False):
+        return None
     school_uuid = self.kwargs.get('school_id')
     school = get_object_or_404(School, uuid=school_uuid)
     

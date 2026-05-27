@@ -186,4 +186,7 @@ SPECTACULAR_SETTINGS = {
         'deepLinking': True,
         'persistAuthorization': True,
     },
-}
+    'ENUM_NAME_OVERRIDES': {
+        'MediumEnum': 'common.choices.ClassMedium',
+    },
+    }
