@@ -94,8 +94,8 @@ class AdmissionType(models.TextChoices):
     NEW = "NEW", "New"
     TRANSFER = "TRANSFER", "Transfer"
 
-# Class Type
-class ClassType(models.TextChoices):
+# Subject Type
+class SubjectType(models.TextChoices):
     THEORY = "THEORY", "Theory"
     PRACTICAL = "PRACTICAL", "Practical"
     BOTH = "BOTH", "Both"

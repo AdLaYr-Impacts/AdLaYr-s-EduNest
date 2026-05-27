@@ -3,8 +3,8 @@ from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
 
 from django.db.models import Count
-from .models import SchoolTeacher, SchoolClass
-from .serializers import TeacherSerializer, SchoolClassSerializer, TeacherSummarySerializer
+from .models import SchoolTeacher, SchoolClass, Subjects
+from .serializers import TeacherSerializer, SchoolClassSerializer, TeacherSummarySerializer, SubjectSerializer
 from permissions.permissions import IsSchoolAdmin
 from common.pagination import StandardPagination
 from common.helper import get_school
@@ -128,3 +128,36 @@ class TeacherSummaryViewSet(viewsets.ReadOnlyModelViewSet):
             assistant_class_teacher_count=Count('classes_as_assistant_teacher', distinct=True)
         )
 
+
+@extend_schema_view(
+    list=extend_schema(tags=['Subjects']),
+    create=extend_schema(tags=['Subjects']),
+    retrieve=extend_schema(tags=['Subjects']),
+    update=extend_schema(tags=['Subjects']),
+    partial_update=extend_schema(tags=['Subjects']),
+    destroy=extend_schema(tags=['Subjects']),
+)
+class SubjectViewSet(viewsets.ModelViewSet):
+    serializer_class = SubjectSerializer
+    permission_classes = [IsSchoolAdmin]
+    pagination_class = StandardPagination
+    lookup_field = 'uuid'
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['subject_type', 'is_active']
+    search_fields = ['name', 'code', 'description']
+    ordering_fields = ['created_at', 'name', 'code']
+
+    def get_queryset(self):
+        school = get_school(self)
+        return Subjects.objects.filter(
+            school=school
+        ).select_related('school')
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context['school'] = get_school(self)
+        return context
+
+    def update(self, request, *args, **kwargs):
+        kwargs['partial'] = True
+        return super().update(request, *args, **kwargs)

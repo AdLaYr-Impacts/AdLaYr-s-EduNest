@@ -12,9 +12,16 @@ from webapp.models import (
     TeacherEmploymentDetails,
     AddressBook,
     School,
-    SchoolClass
+    SchoolClass,
+    Subjects
 )
-from common.choices import UserRoles, UserGender, MaritalStatus, EmployementType, EmployeStatus, AddressType
+from common.choices import (
+    UserRoles, 
+    UserGender, 
+    MaritalStatus, 
+    AddressType,
+    SubjectType
+)
 from common.helper import generate_user_code
 
 
@@ -518,3 +525,66 @@ class TeacherSummarySerializer(serializers.ModelSerializer):
     class Meta:
         model = SchoolTeacher
         fields = ['uuid', 'full_name', 'class_teacher_count', 'assistant_class_teacher_count']
+
+
+class SubjectSerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(source='uuid', read_only=True)
+    
+    class Meta:
+        model = Subjects
+        fields = ['id', 'name', 'code', 'description', 'subject_type', 'is_active']
+        read_only_fields = ['id']
+
+    def validate_name(self, value):
+        if value and not value.strip():
+            raise serializers.ValidationError("Subject name cannot be whitespace only.")
+        return value
+
+    def validate_code(self, value):
+        if value and not value.strip():
+            raise serializers.ValidationError("Subject code cannot be whitespace only.")
+        
+        school = self.context.get('school')
+        query = Subjects.objects.filter(school=school, code__iexact=value)
+        if self.instance:
+            query = query.exclude(pk=self.instance.pk)
+        if query.exists():
+            raise serializers.ValidationError(f"Subject code {value} already exists in this school")
+            
+        return value
+
+    def validate_subject_type(self, value):
+        if value and value not in SubjectType.values:
+            raise serializers.ValidationError(f"Invalid subject type. Must be one of: {', '.join(SubjectType.values)}")
+        return value
+
+    def validate(self, data):
+        school = self.context.get('school')
+        name = data.get('name', self.instance.name if self.instance else None)
+        
+        if not name:
+            raise serializers.ValidationError({"name": "Subject name is required."})
+
+        query = Subjects.objects.filter(
+            school=school,
+            name__iexact=name
+        )
+        
+        if self.instance:
+            query = query.exclude(pk=self.instance.pk)
+            
+        if query.exists():
+            raise serializers.ValidationError(
+                {"name": f"Subject {name} already exists in this school"}
+            )
+
+        return data
+
+    @transaction.atomic
+    def create(self, validated_data):
+        validated_data['school'] = self.context.get('school')
+        return super().create(validated_data)
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        return super().update(instance, validated_data)
