@@ -18,6 +18,7 @@ from common.choices import (
     CasteCategory,
     StudentStatus,
     AdmissionType,
+    SubjectType,
     Attendance,
     ClassTimeTableDays,
     ExamStatus,
@@ -228,11 +229,12 @@ class SchoolClass(BaseModel):
 class Subjects(BaseModel):
     school = models.ForeignKey(School, blank=True, null=True, on_delete=models.SET_NULL, related_name="school_subjects")
     name = models.CharField(max_length=255, null=True, blank=True)
-    code = models.CharField(max_length=20, unique=True)
+    code = models.CharField(max_length=20)
     description = models.TextField(null=True, blank=True)
-    subject_type = models.CharField(max_length=255, null=True, blank=True)
+    subject_type = models.CharField(max_length=255, null=True, blank=True, choices=SubjectType.choices)
     
     class Meta:
+        unique_together = ['school', 'code']
         ordering = ["-created_at"]
         verbose_name = 'Subject'
         verbose_name_plural = 'Subjects'

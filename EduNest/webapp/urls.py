@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import TeacherViewSet, SchoolClassViewSet, TeacherSummaryViewSet
+from .views import TeacherViewSet, SchoolClassViewSet, TeacherSummaryViewSet, SubjectViewSet
 
 urlpatterns = [
     path('teachers/', TeacherViewSet.as_view({
@@ -20,6 +20,16 @@ urlpatterns = [
         'post': 'create'
     })),
     path('classes/<uuid:uuid>/', SchoolClassViewSet.as_view({
+        'get': 'retrieve',
+        'put': 'update',
+        'patch': 'partial_update',
+        'delete': 'destroy'
+    })),
+    path('subjects/', SubjectViewSet.as_view({
+        'get': 'list',
+        'post': 'create'
+    })),
+    path('subjects/<uuid:uuid>/', SubjectViewSet.as_view({
         'get': 'retrieve',
         'put': 'update',
         'patch': 'partial_update',
