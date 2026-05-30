@@ -92,9 +92,17 @@ DATABASES = {
         'USER': config('db_USER'),
         'PASSWORD': config('db_PASSWORD'),
         'HOST': config('db_host'),
-        'PORT': config('db_PORT'),
+        'PORT': config('db_PORT', default='5432'),
     }
 }
+
+# Handle ssl_mode in cloud db connect
+ssl_mode = config('DB_SSL_MODE', default='')
+
+if ssl_mode:
+    DATABASES['default']['OPTIONS'] = {
+        'sslmode': ssl_mode
+    }
 
 
 # Password validation
