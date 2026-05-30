@@ -13,7 +13,8 @@ from webapp.models import (
     AddressBook,
     School,
     SchoolClass,
-    Subjects
+    Subjects,
+    ClassSubjects
 )
 from common.choices import (
     UserRoles, 
@@ -610,3 +611,89 @@ class SubjectListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Subjects
         fields = ['uuid', 'code', 'name']
+class ClassSubjectSerializer(serializers.ModelSerializer):
+    subject_uuid = serializers.SlugRelatedField(
+        slug_field='uuid',
+        queryset=Subjects.objects.all(),
+        source='subject'
+    )
+    class_uuid = serializers.SlugRelatedField(
+        slug_field='uuid',
+        queryset=SchoolClass.objects.all(),
+        source='subject_class'
+    )
+    teacher_uuid = serializers.SlugRelatedField(
+        slug_field='uuid',
+        queryset=SchoolTeacher.objects.all(),
+        source='teacher',
+        required=False,
+        allow_null=True
+    )
+    
+    subject_details = SubjectListSerializer(source='subject', read_only=True)
+    class_details = ClassListSerializer(source='subject_class', read_only=True)
+    teacher_details = TeacherMiniSerializer(source='teacher', read_only=True)
+    
+    class Meta:
+        model = ClassSubjects
+        fields = [
+            'uuid', 'subject_uuid', 'class_uuid', 'teacher_uuid',
+            'is_optional', 'is_language', 'max_marks', 'pass_marks',
+            'sort_order', 'subject_details', 'class_details', 'teacher_details'
+        ]
+        read_only_fields = ['uuid']
+
+    def validate(self, data):
+        school = self.context.get('school')
+        subject = data.get('subject')
+        subject_class = data.get('subject_class')
+        teacher = data.get('teacher')
+
+        # School validations
+        if subject and subject.school != school:
+            raise serializers.ValidationError({"subject_uuid": "Subject does not belong to this school."})
+        
+        if subject_class and subject_class.school != school:
+            raise serializers.ValidationError({"class_uuid": "Class does not belong to this school."})
+            
+        if teacher:
+            if teacher.school != school:
+                raise serializers.ValidationError({"teacher_uuid": "Teacher does not belong to this school."})
+            if teacher.user.is_deleted:
+                raise serializers.ValidationError({"teacher_uuid": f"The teacher '{teacher.user.get_full_name()}' cannot be assigned because their account has been deactivated or deleted."})
+
+        # Duplicate validation
+        if subject and subject_class:
+            query = ClassSubjects.objects.filter(
+                subject=subject,
+                subject_class=subject_class
+            )
+            if self.instance:
+                query = query.exclude(pk=self.instance.pk)
+            
+            if query.exists():
+                raise serializers.ValidationError(
+                    f"Subject {subject.name} already assigned to the class {subject_class.class_name}"
+                )
+
+        # Marks validation
+        max_marks = data.get('max_marks', self.instance.max_marks if self.instance else 100)
+        pass_marks = data.get('pass_marks', self.instance.pass_marks if self.instance else 35)
+        
+        if pass_marks is not None and max_marks is not None:
+            if pass_marks > max_marks:
+                raise serializers.ValidationError({"pass_marks": "Pass marks cannot be greater than max marks."})
+            if pass_marks < 0:
+                raise serializers.ValidationError({"pass_marks": "Pass marks cannot be negative."})
+            if max_marks < 0:
+                raise serializers.ValidationError({"max_marks": "Max marks cannot be negative."})
+
+        return data
+
+    @transaction.atomic
+    def create(self, validated_data):
+        return super().create(validated_data)
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        return super().update(instance, validated_data)

@@ -4,10 +4,11 @@ from rest_framework.decorators import action
 from django_filters.rest_framework import DjangoFilterBackend
 
 from django.db.models import Count
-from .models import SchoolTeacher, SchoolClass, Subjects
+from .models import SchoolTeacher, SchoolClass, Subjects, ClassSubjects
 from .serializers import (
     TeacherSerializer, SchoolClassSerializer, TeacherSummarySerializer, 
-    SubjectSerializer, ClassListSerializer, SubjectListSerializer
+    SubjectSerializer, ClassListSerializer, SubjectListSerializer,
+    ClassSubjectSerializer
 )
 from permissions.permissions import IsSchoolAdmin
 from common.pagination import StandardPagination
@@ -224,3 +225,41 @@ class SubjectListViews(viewsets.ViewSet):
 
         serializer = SubjectListSerializer(queryset, many=True)
         return Response(serializer.data)
+
+
+@extend_schema_view(
+    list=extend_schema(tags=['Class Subjects']),
+    create=extend_schema(tags=['Class Subjects']),
+    retrieve=extend_schema(tags=['Class Subjects']),
+    update=extend_schema(tags=['Class Subjects']),
+    partial_update=extend_schema(tags=['Class Subjects']),
+    destroy=extend_schema(tags=['Class Subjects']),
+)
+class ClassSubjectViewSet(viewsets.ModelViewSet):
+    serializer_class = ClassSubjectSerializer
+    permission_classes = [IsSchoolAdmin]
+    pagination_class = StandardPagination
+    lookup_field = 'uuid'
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['subject_class__uuid', 'subject__uuid', 'teacher__uuid', 'is_optional', 'is_language']
+    search_fields = ['subject__name', 'subject__code', 'subject_class__class_name', 'teacher__user__first_name', 'teacher__user__last_name']
+    ordering_fields = ['created_at', 'sort_order', 'max_marks', 'pass_marks']
+
+    def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False):
+            return ClassSubjects.objects.none()
+        school = get_school(self)
+        return ClassSubjects.objects.filter(
+            subject_class__school=school
+        ).select_related(
+            'subject', 'subject_class', 'teacher', 'teacher__user'
+        )
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context['school'] = get_school(self)
+        return context
+
+    def update(self, request, *args, **kwargs):
+        kwargs['partial'] = True
+        return super().update(request, *args, **kwargs)
