@@ -3,12 +3,12 @@ from rest_framework.response import Response
 from rest_framework.decorators import action
 from django_filters.rest_framework import DjangoFilterBackend
 
-from django.db.models import Count
+from django.db.models import Count, Prefetch
 from .models import SchoolTeacher, SchoolClass, Subjects, ClassSubjects
 from .serializers import (
     TeacherSerializer, SchoolClassSerializer, TeacherSummarySerializer, 
     SubjectSerializer, ClassListSerializer, SubjectListSerializer,
-    ClassSubjectSerializer
+    ClassSubjectSerializer, ClassSubjectGroupSerializer
 )
 from permissions.permissions import IsSchoolAdmin
 from common.pagination import StandardPagination
@@ -184,8 +184,8 @@ class SubjectViewSet(viewsets.ModelViewSet):
     ),
     subjects=extend_schema(
         tags=['Subjects'],
-        summary="Subject lists to create subjects",
-        responses={200: SubjectListSerializer(many=True)}
+        summary="Grouped Class and Subject list",
+        responses={200: ClassSubjectGroupSerializer(many=True)}
     )
 )
 class SubjectListViews(viewsets.ViewSet):
@@ -212,18 +212,27 @@ class SubjectListViews(viewsets.ViewSet):
     @action(detail=False, methods=['get'])
     def subjects(self, request, *args, **kwargs):
         school = get_school(self)
-        queryset = Subjects.objects.filter(
+        queryset = SchoolClass.objects.filter(
             school=school, 
             is_active=True
-        ).only('uuid', 'code', 'name')
+        ).prefetch_related(
+            Prefetch(
+                'class_as_subject_class',
+                queryset=ClassSubjects.objects.filter(
+                    is_active=True, 
+                    subject__is_active=True
+                ).select_related('subject'),
+                to_attr='active_subjects'
+            )
+        )
 
         paginator = self.pagination_class()
         page = paginator.paginate_queryset(queryset, request, view=self)
         if page is not None:
-            serializer = SubjectListSerializer(page, many=True)
+            serializer = ClassSubjectGroupSerializer(page, many=True)
             return paginator.get_paginated_response(serializer.data)
 
-        serializer = SubjectListSerializer(queryset, many=True)
+        serializer = ClassSubjectGroupSerializer(queryset, many=True)
         return Response(serializer.data)
 
 
