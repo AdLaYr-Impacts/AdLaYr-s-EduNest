@@ -611,6 +611,34 @@ class SubjectListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Subjects
         fields = ['uuid', 'code', 'name']
+
+
+class ClassSubjectGroupSerializer(serializers.ModelSerializer):
+    name = serializers.SerializerMethodField()
+    uuid = serializers.UUIDField(read_only=True)
+    subjects = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SchoolClass
+        fields = ['uuid', 'name', 'subjects']
+
+    @extend_schema_field(serializers.CharField)
+    def get_name(self, obj):
+        return f"{obj.class_name} - {obj.section}" if obj.section else obj.class_name
+
+    @extend_schema_field(SubjectListSerializer(many=True))
+    def get_subjects(self, obj):
+        if hasattr(obj, 'active_subjects'):
+            subjects = [cs.subject for cs in obj.active_subjects if cs.subject]
+        else:
+            class_subjects = obj.class_as_subject_class.filter(
+                is_active=True, 
+                subject__is_active=True
+            ).select_related('subject')
+            subjects = [cs.subject for cs in class_subjects]
+        return SubjectListSerializer(subjects, many=True).data
+
+
 class ClassSubjectSerializer(serializers.ModelSerializer):
     subject_uuid = serializers.SlugRelatedField(
         slug_field='uuid',
