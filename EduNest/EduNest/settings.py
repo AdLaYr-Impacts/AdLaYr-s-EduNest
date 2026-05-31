@@ -88,11 +88,11 @@ WSGI_APPLICATION = 'EduNest.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': config('db_NAME'),
-        'USER': config('db_USER'),
-        'PASSWORD': config('db_PASSWORD'),
-        'HOST': config('db_host'),
-        'PORT': config('db_PORT', default='5432'),
+        'NAME': config('DB_NAME'),
+        'USER': config('DB_USER'),
+        'PASSWORD': config('DB_PASSWORD'),
+        'HOST': config('DB_HOST'),
+        'PORT': config('DB_PORT', default='5432'),
     }
 }
 
