@@ -202,6 +202,11 @@ class SubjectListViews(viewsets.ViewSet):
 
         class_uuid = request.query_params.get('class')
         if class_uuid:
+            if not SchoolClass.objects.filter(uuid=class_uuid, school=school).exists():
+                return Response(
+                    {"detail": "Class not found or does not belong to your school."},
+                    status=status.HTTP_404_NOT_FOUND
+                )
             queryset = queryset.exclude(
                 class_subjects__subject_class__uuid=class_uuid,
                 class_subjects__subject_class__school=school,
