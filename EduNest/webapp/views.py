@@ -179,7 +179,7 @@ class SubjectViewSet(viewsets.ModelViewSet):
 @extend_schema_view(
     classes=extend_schema(
         tags=['Subjects'],
-        summary="Class lists to create subjects",
+        summary="Subject lists to assign classes",
         responses={200: ClassListSerializer(many=True)}
     ),
     subjects=extend_schema(
@@ -193,24 +193,24 @@ class SubjectListViews(viewsets.ViewSet):
     permission_classes = [IsSchoolAdmin]
 
     @action(detail=False, methods=['get'])
-    def classes(self, request, *args, **kwargs):
+    def subjects(self, request, *args, **kwargs):
         school = get_school(self)
-        queryset = SchoolClass.objects.filter(
+        queryset = Subjects.objects.filter(
             school=school, 
             is_active=True
-        ).only('uuid', 'class_name', 'section')
+        ).only('uuid', 'code', 'name')
 
         paginator = self.pagination_class()
         page = paginator.paginate_queryset(queryset, request, view=self)
         if page is not None:
-            serializer = ClassListSerializer(page, many=True)
+            serializer = SubjectListSerializer(page, many=True)
             return paginator.get_paginated_response(serializer.data)
 
-        serializer = ClassListSerializer(queryset, many=True)
+        serializer = SubjectListSerializer(queryset, many=True)
         return Response(serializer.data)
 
     @action(detail=False, methods=['get'])
-    def subjects(self, request, *args, **kwargs):
+    def classes(self, request, *args, **kwargs):
         school = get_school(self)
         queryset = SchoolClass.objects.filter(
             school=school, 
