@@ -180,7 +180,7 @@ class SubjectViewSet(viewsets.ModelViewSet):
     classes=extend_schema(
         tags=['Subjects'],
         summary="Subject lists to assign classes",
-        responses={200: ClassListSerializer(many=True)}
+        responses={200: SubjectListSerializer(many=True)}
     ),
     subjects=extend_schema(
         tags=['Subjects'],
@@ -199,6 +199,14 @@ class SubjectListViews(viewsets.ViewSet):
             school=school, 
             is_active=True
         ).only('uuid', 'code', 'name')
+
+        class_uuid = request.query_params.get('class')
+        if class_uuid:
+            queryset = queryset.exclude(
+                class_subjects__subject_class__uuid=class_uuid,
+                class_subjects__subject_class__school=school,
+                class_subjects__is_active=True
+            )
 
         paginator = self.pagination_class()
         page = paginator.paginate_queryset(queryset, request, view=self)
