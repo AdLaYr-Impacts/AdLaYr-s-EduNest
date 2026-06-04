@@ -266,7 +266,7 @@ class SubjectGroup(BaseModel):
     school = models.ForeignKey(School, blank=True, null=True, on_delete=models.SET_NULL, related_name="school_subject_groups")
     name = models.CharField(max_length=255, null=True, blank=True)
     code = models.CharField(max_length=15, null=True, blank=True)
-    classes = models.ManyToManyField(Subjects, blank=True)
+    classes = models.ManyToManyField(SchoolClass, blank=True)
     description = models.TextField(null=True, blank=True)
 
     class Meta:
