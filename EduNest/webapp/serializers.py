@@ -14,7 +14,8 @@ from webapp.models import (
     School,
     SchoolClass,
     Subjects,
-    ClassSubjects
+    ClassSubjects,
+    SubjectGroup
 )
 from common.choices import (
     UserRoles, 
@@ -725,3 +726,81 @@ class ClassSubjectSerializer(serializers.ModelSerializer):
     @transaction.atomic
     def update(self, instance, validated_data):
         return super().update(instance, validated_data)
+
+
+class SubjectGroupSerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(source='uuid', read_only=True)
+    class_uuids = serializers.SlugRelatedField(
+        slug_field='uuid',
+        queryset=SchoolClass.objects.all(),
+        source='classes',
+        many=True,
+        required=False
+    )
+    
+    classes_details = ClassListSerializer(source='classes', many=True, read_only=True)
+
+    class Meta:
+        model = SubjectGroup
+        fields = ['id', 'name', 'code', 'class_uuids', 'description', 'is_active', 'classes_details']
+        read_only_fields = ['id']
+
+    def validate_name(self, value):
+        if value and not value.strip():
+            raise serializers.ValidationError("SubjectGroup name cannot be whitespace only.")
+        return value
+
+    def validate_code(self, value):
+        if value and not value.strip():
+            raise serializers.ValidationError("SubjectGroup code cannot be whitespace only.")
+        return value
+
+    def validate(self, data):
+        school = self.context.get('school')
+        name = data.get('name', self.instance.name if self.instance else None)
+        code = data.get('code', self.instance.code if self.instance else None)
+        classes = data.get('classes', [])
+
+        if not name:
+            raise serializers.ValidationError({"name": "Subject Group name is required."})
+
+        # One school should contain one unique name
+        name_query = SubjectGroup.objects.filter(school=school, name__iexact=name)
+        if self.instance:
+            name_query = name_query.exclude(pk=self.instance.pk)
+        if name_query.exists():
+            raise serializers.ValidationError({"name": f"SubjectGroup {name} already assigned to this School"})
+
+        # One school should contain one unique code
+        if code:
+            code_query = SubjectGroup.objects.filter(school=school, code__iexact=code)
+            if self.instance:
+                code_query = code_query.exclude(pk=self.instance.pk)
+            if code_query.exists():
+                raise serializers.ValidationError({"code": f"SubjectGroup {code} already assigned to this School"})
+
+        # Classes belongs to same school
+        for cls in classes:
+            if cls.school != school:
+                raise serializers.ValidationError({"class_uuids": f"Class {cls.uuid} does not belong to this school."})
+
+        return data
+
+    @transaction.atomic
+    def create(self, validated_data):
+        validated_data['school'] = self.context.get('school')
+        classes = validated_data.pop('classes', [])
+        subject_group = SubjectGroup.objects.create(**validated_data)
+        if classes:
+            subject_group.classes.set(classes)
+        return subject_group
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        classes = validated_data.pop('classes', None)
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+        if classes is not None:
+            instance.classes.set(classes)
+        return instance
