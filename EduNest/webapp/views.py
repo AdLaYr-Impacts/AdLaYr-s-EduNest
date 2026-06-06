@@ -4,11 +4,11 @@ from rest_framework.decorators import action
 from django_filters.rest_framework import DjangoFilterBackend
 
 from django.db.models import Count, Prefetch
-from .models import SchoolTeacher, SchoolClass, Subjects, ClassSubjects
+from .models import SchoolTeacher, SchoolClass, Subjects, ClassSubjects, SubjectGroup
 from .serializers import (
     TeacherSerializer, SchoolClassSerializer, TeacherSummarySerializer, 
     SubjectSerializer, ClassListSerializer, SubjectListSerializer,
-    ClassSubjectSerializer, ClassSubjectGroupSerializer
+    ClassSubjectSerializer, ClassSubjectGroupSerializer, SubjectGroupSerializer
 )
 from permissions.permissions import IsSchoolAdmin
 from common.pagination import StandardPagination
@@ -275,6 +275,46 @@ class ClassSubjectViewSet(viewsets.ModelViewSet):
             subject_class__school=school
         ).select_related(
             'subject', 'subject_class', 'teacher', 'teacher__user'
+        )
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context['school'] = get_school(self)
+        return context
+
+    def update(self, request, *args, **kwargs):
+        kwargs['partial'] = True
+        return super().update(request, *args, **kwargs)
+
+
+@extend_schema_view(
+    list=extend_schema(tags=['Subject Groups']),
+    create=extend_schema(tags=['Subject Groups']),
+    retrieve=extend_schema(tags=['Subject Groups']),
+    update=extend_schema(tags=['Subject Groups']),
+    partial_update=extend_schema(tags=['Subject Groups']),
+    destroy=extend_schema(tags=['Subject Groups']),
+)
+class SubjectGroupViewSet(viewsets.ModelViewSet):
+    serializer_class = SubjectGroupSerializer
+    permission_classes = [IsSchoolAdmin]
+    pagination_class = StandardPagination
+    lookup_field = 'uuid'
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['is_active']
+    search_fields = ['name', 'code', 'description']
+    ordering_fields = ['created_at', 'name', 'code']
+
+    def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False):
+            return SubjectGroup.objects.none()
+        school = get_school(self)
+        return SubjectGroup.objects.filter(
+            school=school
+        ).select_related(
+            'school'
+        ).prefetch_related(
+            'classes'
         )
 
     def get_serializer_context(self):
