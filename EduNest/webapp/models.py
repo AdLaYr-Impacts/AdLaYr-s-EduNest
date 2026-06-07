@@ -325,6 +325,7 @@ class StudentsAdmissionDetails(BaseModel):
     
     
 class StudentParentDetails(BaseModel):
+    user = models.ForeignKey(Users, blank=True, null=True, on_delete=models.CASCADE, related_name="parent_profile")
     student = models.ForeignKey(Students, null=True, blank=True, on_delete=models.CASCADE, related_name="student_parent_details")
     father_name = models.CharField(max_length=255, null=True, blank=True)
     father_occupation = models.CharField(max_length=255, null=True, blank=True)
@@ -352,7 +353,7 @@ class StudentAcademicdetails(BaseModel):
     student = models.ForeignKey(Students, null=True, blank=True, on_delete=models.CASCADE, related_name="student_academic_details")
     student_class = models.ForeignKey(SchoolClass, null=True, blank=True, on_delete=models.SET_NULL, related_name="student_class")
     subject_group = models.ForeignKey(SubjectGroup, on_delete=models.SET_NULL, null=True, blank=True, related_name="student_group")
-    roll_number = models.CharField(max_length=30, unique=True, null=True, blank=True)
+    roll_number = models.CharField(max_length=30, null=True, blank=True)
     register_number = models.CharField(max_length=30, unique=True, null=True, blank=True)
     second_language = models.CharField(max_length=255, null=True, blank=True)
     third_language = models.CharField(max_length=255, null=True, blank=True)

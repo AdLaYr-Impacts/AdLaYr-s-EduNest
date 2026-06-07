@@ -4,11 +4,12 @@ from rest_framework.decorators import action
 from django_filters.rest_framework import DjangoFilterBackend
 
 from django.db.models import Count, Prefetch
-from .models import SchoolTeacher, SchoolClass, Subjects, ClassSubjects, SubjectGroup
+from .models import SchoolTeacher, SchoolClass, Subjects, ClassSubjects, SubjectGroup, Students
 from .serializers import (
     TeacherSerializer, SchoolClassSerializer, TeacherSummarySerializer, 
     SubjectSerializer, ClassListSerializer, SubjectListSerializer,
-    ClassSubjectSerializer, ClassSubjectGroupSerializer, SubjectGroupSerializer
+    ClassSubjectSerializer, ClassSubjectGroupSerializer, SubjectGroupSerializer,
+    StudentSerializer
 )
 from permissions.permissions import IsSchoolAdmin
 from common.pagination import StandardPagination
@@ -325,3 +326,61 @@ class SubjectGroupViewSet(viewsets.ModelViewSet):
     def update(self, request, *args, **kwargs):
         kwargs['partial'] = True
         return super().update(request, *args, **kwargs)
+
+
+@extend_schema_view(
+    list=extend_schema(tags=['Students']),
+    create=extend_schema(tags=['Students']),
+    retrieve=extend_schema(tags=['Students']),
+    update=extend_schema(tags=['Students']),
+    partial_update=extend_schema(tags=['Students']),
+    destroy=extend_schema(tags=['Students']),
+)
+class StudentViewSet(viewsets.ModelViewSet):
+    serializer_class = StudentSerializer
+    permission_classes = [IsSchoolAdmin]
+    pagination_class = StandardPagination
+    lookup_field = 'uuid'
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['student_admission_details__student_status', 'student_academic_details__student_class__uuid']
+    search_fields = [
+        'user__first_name', 'user__last_name', 'user__username', 
+        'user__email', 'user__phone_number', 
+        'student_admission_details__admission_number'
+    ]
+    ordering_fields = ['created_at', 'user__first_name']
+
+    def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False):
+            return Students.objects.none()
+        school = get_school(self)
+        return Students.objects.filter(
+            school=school,
+            user__is_deleted=False
+        ).select_related(
+            'user', 'school'
+        ).prefetch_related(
+            'student_admission_details',
+            'student_parent_details',
+            'student_academic_details',
+            'student_academic_details__student_class',
+            'student_academic_details__subject_group'
+        )
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context['school'] = get_school(self)
+        return context
+
+    def update(self, request, *args, **kwargs):
+        kwargs['partial'] = True
+        return super().update(request, *args, **kwargs)
+
+    def perform_destroy(self, instance):
+        user = instance.user
+        user.is_deleted = True
+        user.is_active = False
+        user.save()
+        
+        instance.is_active = False
+        instance.save()

@@ -15,14 +15,19 @@ from webapp.models import (
     SchoolClass,
     Subjects,
     ClassSubjects,
-    SubjectGroup
+    SubjectGroup,
+    Students,
+    StudentsAdmissionDetails,
+    StudentParentDetails,
+    StudentAcademicdetails
 )
 from common.choices import (
     UserRoles, 
     UserGender, 
     MaritalStatus, 
     AddressType,
-    SubjectType
+    SubjectType,
+    CasteCategory
 )
 from drf_spectacular.utils import extend_schema_field
 from common.helper import generate_user_code
@@ -803,4 +808,424 @@ class SubjectGroupSerializer(serializers.ModelSerializer):
         instance.save()
         if classes is not None:
             instance.classes.set(classes)
+        return instance
+
+
+# Student Management
+class StudentAdmissionSerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(source='uuid', read_only=True)
+
+    class Meta:
+        model = StudentsAdmissionDetails
+        fields = [
+            'id', 'admission_number', 'admission_type', 'admission_date', 
+            'academic_year', 'student_status', 'previous_school'
+        ]
+
+class StudentAcademicSerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(source='uuid', read_only=True)
+    class_uuid = serializers.SlugRelatedField(
+        slug_field='uuid',
+        queryset=SchoolClass.objects.all(),
+        source='student_class',
+        required=False,
+        allow_null=True
+    )
+    subject_group_uuid = serializers.SlugRelatedField(
+        slug_field='uuid',
+        queryset=SubjectGroup.objects.all(),
+        source='subject_group',
+        required=False,
+        allow_null=True
+    )
+    
+    class_details = ClassListSerializer(source='student_class', read_only=True)
+    subject_group_details = SubjectGroupSerializer(source='subject_group', read_only=True)
+
+    class Meta:
+        model = StudentAcademicdetails
+        fields = [
+            'id', 'class_uuid', 'subject_group_uuid', 'roll_number', 
+            'register_number', 'second_language', 'third_language', 
+            'transport_requird', 'pickup_point', 'vehicle_number', 
+            'vehicle_rc_number', 'driver_name', 'driver_phone', 
+            'hostel_requird', 'hostel_name', 'room_number', 
+            'warden_name', 'warden_phone', 'class_details', 
+            'subject_group_details'
+        ]
+
+    def validate(self, data):
+        school = self.context.get('school')
+        student_class = data.get('student_class')
+        roll_number = data.get('roll_number')
+
+        if student_class and student_class.school != school:
+            raise serializers.ValidationError({"class_uuid": "Class does not belong to this school."})
+
+        if student_class and roll_number:
+            query = StudentAcademicdetails.objects.filter(
+                student_class=student_class,
+                roll_number=roll_number
+            )
+            if self.instance:
+                query = query.exclude(pk=self.instance.pk)
+            
+            if query.exists():
+                raise serializers.ValidationError({
+                    "roll_number": f"Roll number {roll_number} already assigned in this class."
+                })
+
+        return data
+
+class StudentParentSerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(source='uuid', read_only=True)
+    parent_user_uuid = serializers.SlugRelatedField(
+        slug_field='uuid',
+        queryset=Users.objects.filter(role=UserRoles.PARENT),
+        source='user',
+        required=False,
+        allow_null=True
+    )
+    # Fields for parent user creation
+    password = serializers.CharField(write_only=True, required=False)
+    confirm_password = serializers.CharField(write_only=True, required=False)
+
+    class Meta:
+        model = StudentParentDetails
+        fields = [
+            'id', 'parent_user_uuid', 'father_name', 'father_occupation', 
+            'father_phone', 'father_email', 'mother_name', 'mother_occupation', 
+            'mother_phone', 'mother_email', 'gurdian_name', 'gurdian_releation', 
+            'gurdian_phone', 'gurdian_email', 'password', 'confirm_password'
+        ]
+
+    def validate(self, data):
+        parent_user = data.get('user')
+        password = data.get('password')
+        confirm_password = data.get('confirm_password')
+
+        if not parent_user:
+            # Creation mode (New parent)
+            if not password or not confirm_password:
+                # If it's an update and parent user is already assigned, we don't need passwords
+                if not self.instance or not self.instance.user:
+                    raise serializers.ValidationError({"password": "Password and confirm password are required for new parent."})
+            
+            if password or confirm_password:
+                if password != confirm_password:
+                    raise serializers.ValidationError({"password": "Passwords do not match."})
+                try:
+                    validate_password(password)
+                except Exception as e:
+                    raise serializers.ValidationError({"password": list(e.messages)})
+        else:
+            # Existing parent linkage
+            if not password:
+                raise serializers.ValidationError({"password": "Parent password is required to link an existing parent account."})
+            
+            if not parent_user.check_password(password):
+                raise serializers.ValidationError({"password": "Invalid parent password. Verification failed."})
+            
+            school = self.context.get('school')
+            if parent_user.school != school:
+                raise serializers.ValidationError({"parent_user_uuid": "This parent belongs to another school."})
+
+        return data
+
+class StudentSerializer(serializers.ModelSerializer):
+    first_name = serializers.CharField(source='user.first_name')
+    last_name = serializers.CharField(source='user.last_name')
+    email = serializers.EmailField(source='user.email', required=False, allow_null=True, allow_blank=True)
+    phone_number = serializers.CharField(source='user.phone_number', required=False, allow_null=True, allow_blank=True)
+    profile_picture = serializers.ImageField(source='user.profile_picture', required=False, allow_null=True)
+    aadhaar_number = serializers.CharField(source='user.aadhaar_number', required=False, allow_blank=True)
+    nationality = serializers.CharField(source='user.nationality', required=False, allow_blank=True)
+    date_of_birth = serializers.DateField(source='user.date_of_birth', required=False, allow_null=True)
+    gender = serializers.ChoiceField(source='user.gender', choices=UserGender.choices, required=False, allow_blank=True)
+    blood_group = serializers.CharField(source='user.blood_group', required=False, allow_blank=True)
+
+    # Student specific fields
+    religion = serializers.CharField(required=False, allow_blank=True)
+    caste_category = serializers.ChoiceField(choices=CasteCategory.choices, required=False, allow_blank=True)
+    mother_tongue = serializers.CharField(required=False, allow_blank=True)
+    identification_mark_1 = serializers.CharField(required=False, allow_blank=True)
+    identification_mark_2 = serializers.CharField(required=False, allow_blank=True)
+
+    # Nested objects
+    address = TeacherAddressSerializer(required=False)
+    admission_details = StudentAdmissionSerializer(required=False, source='student_admission_details', many=True)
+    academic_details = StudentAcademicSerializer(required=False, source='student_academic_details', many=True)
+    parent_details = StudentParentSerializer(required=False, source='student_parent_details', many=True)
+    
+    # Credentials for Student
+    password = serializers.CharField(write_only=True, required=False)
+    confirm_password = serializers.CharField(write_only=True, required=False)
+    
+    # Read only
+    uuid = serializers.UUIDField(read_only=True)
+    username = serializers.CharField(source='user.username', read_only=True)
+
+    class Meta:
+        model = Students
+        fields = [
+            'uuid', 'username', 'first_name', 'last_name', 'email', 'phone_number',
+            'profile_picture', 'aadhaar_number', 'nationality', 'date_of_birth',
+            'gender', 'blood_group', 'religion', 'caste_category', 'mother_tongue',
+            'identification_mark_1', 'identification_mark_2', 'address',
+            'admission_details', 'academic_details', 'parent_details',
+            'password', 'confirm_password'
+        ]
+
+    def validate_aadhaar_number(self, value):
+        if value and not re.match(r'^\d{12}$', value):
+            raise serializers.ValidationError("Aadhaar number must be 12 digits.")
+        return value
+
+    def validate(self, data):
+        user_data = data.get('user', {})
+        password = data.get('password')
+        confirm_password = data.get('confirm_password')
+        
+        if not self.instance:
+            if not password or not confirm_password:
+                raise serializers.ValidationError({"password": "Password and confirm password are required for new student."})
+        
+        if password or confirm_password:
+            if password != confirm_password:
+                raise serializers.ValidationError({"password": "Passwords do not match."})
+            try:
+                validate_password(password)
+            except Exception as e:
+                raise serializers.ValidationError({"password": list(e.messages)})
+
+        dob = user_data.get('date_of_birth')
+        if dob and dob > datetime.date.today():
+            raise serializers.ValidationError({"date_of_birth": "Date of birth cannot be in the future."})
+
+        email = user_data.get('email')
+        if email:
+            query = Users.objects.filter(email=email, is_deleted=False)
+            if self.instance:
+                query = query.exclude(id=self.instance.user.id)
+            if query.exists():
+                raise serializers.ValidationError({"email": "User with this email already exists."})
+
+        return data
+
+    @transaction.atomic
+    def create(self, validated_data):
+        user_data = validated_data.pop('user')
+        address_data = validated_data.pop('address', None)
+        admission_data = validated_data.pop('student_admission_details', [])
+        academic_data = validated_data.pop('student_academic_details', [])
+        parent_data = validated_data.pop('student_parent_details', [])
+        password = validated_data.pop('password')
+        validated_data.pop('confirm_password', None)
+        
+        school = self.context.get('school')
+        
+        # Student User
+        username = generate_user_code(school, UserRoles.STUDENT)
+        user = Users.objects.create(
+            username=username,
+            role=UserRoles.STUDENT,
+            school=school,
+            **user_data
+        )
+        user.set_password(password)
+        user.save()
+        
+        # Student Profile
+        student = Students.objects.create(
+            user=user,
+            school=school,
+            **validated_data
+        )
+        
+        # Address
+        if address_data:
+            AddressBook.objects.create(
+                user=user,
+                address_type=AddressType.USER,
+                **address_data
+            )
+            
+        # Admission Details
+        for adm in admission_data:
+            StudentsAdmissionDetails.objects.create(student=student, **adm)
+            
+        # Academic Details
+        for aca in academic_data:
+            # Validate class and subject group belong to school
+            s_class = aca.get('student_class')
+            if s_class and s_class.school != school:
+                raise serializers.ValidationError("Assigned class does not belong to this school.")
+            
+            s_group = aca.get('subject_group')
+            if s_group and s_group.school != school:
+                raise serializers.ValidationError("Assigned subject group does not belong to this school.")
+                
+            StudentAcademicdetails.objects.create(student=student, **aca)
+            
+        # Parent Details
+        for par in parent_data:
+            parent_user = par.pop('user', None)
+            par_password = par.pop('password', None)
+            par.pop('confirm_password', None)
+            
+            if not parent_user:
+                # Create new parent user
+                p_username = generate_user_code(school, UserRoles.PARENT)
+                parent_user = Users.objects.create(
+                    username=p_username,
+                    role=UserRoles.PARENT,
+                    school=school,
+                    first_name=par.get('father_name', 'Parent'),
+                    email=par.get('father_email'),
+                    phone_number=par.get('father_phone')
+                )
+                parent_user.set_password(par_password)
+                parent_user.save()
+            
+            # Create StudentParentDetails link
+            StudentParentDetails.objects.create(
+                student=student,
+                user=parent_user,
+                **par
+            )
+            
+        return student
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        user_data = validated_data.pop('user', {})
+        address_data = validated_data.pop('address', None)
+        admission_data = validated_data.pop('student_admission_details', None)
+        academic_data = validated_data.pop('student_academic_details', None)
+        parent_data = validated_data.pop('student_parent_details', None)
+        password = validated_data.pop('password', None)
+        validated_data.pop('confirm_password', None)
+        
+        school = self.context.get('school')
+        
+        # Update User
+        user = instance.user
+        if password:
+            user.set_password(password)
+        for attr, value in user_data.items():
+            setattr(user, attr, value)
+        user.save()
+        
+        # Update Student Profile
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+        
+        # Update Address
+        if address_data:
+            address_obj, created = AddressBook.objects.get_or_create(   
+                user=user,
+                address_type=AddressType.USER,
+                defaults=address_data
+            )
+            if not created:
+                for attr, value in address_data.items():
+                    setattr(address_obj, attr, value)
+                address_obj.save()
+                
+        # Update Admission Details
+        if admission_data is not None:
+            # Note: The model allows multiple but typically it's one.
+            # I'll update existing or create new.
+            existing_ids = [adm.uuid for adm in instance.student_admission_details.all()]
+            incoming_ids = [adm.get('uuid') for adm in admission_data if adm.get('uuid')]
+            
+            for adm_uuid in existing_ids:
+                if adm_uuid not in incoming_ids:
+                    StudentsAdmissionDetails.objects.filter(uuid=adm_uuid).delete()
+            
+            for adm in admission_data:
+                adm_uuid = adm.pop('uuid', None)
+                if adm_uuid:
+                    StudentsAdmissionDetails.objects.filter(uuid=adm_uuid).update(**adm)
+                else:
+                    StudentsAdmissionDetails.objects.create(student=instance, **adm)
+
+        # Update Academic Details
+        if academic_data is not None:
+            existing_ids = [aca.uuid for aca in instance.student_academic_details.all()]
+            incoming_ids = [aca.get('uuid') for aca in academic_data if aca.get('uuid')]
+            
+            for aca_uuid in existing_ids:
+                if aca_uuid not in incoming_ids:
+                    StudentAcademicdetails.objects.filter(uuid=aca_uuid).delete()
+                    
+            for aca in academic_data:
+                aca_uuid = aca.pop('uuid', None)
+                # Validation
+                s_class = aca.get('student_class')
+                if s_class and s_class.school != school:
+                    raise serializers.ValidationError("Assigned class does not belong to this school.")
+                
+                s_group = aca.get('subject_group')
+                if s_group and s_group.school != school:
+                    raise serializers.ValidationError("Assigned subject group does not belong to this school.")
+                
+                if aca_uuid:
+                    StudentAcademicdetails.objects.filter(uuid=aca_uuid).update(**aca)
+                else:
+                    StudentAcademicdetails.objects.create(student=instance, **aca)
+
+        # Update Parent Details
+        if parent_data is not None:
+            existing_ids = [par.uuid for par in instance.student_parent_details.all()]
+            incoming_ids = [par.get('uuid') for par in parent_data if par.get('uuid')]
+            
+            for par_uuid in existing_ids:
+                if par_uuid not in incoming_ids:
+                    StudentParentDetails.objects.filter(uuid=par_uuid).delete()
+                    
+            for par in parent_data:
+                par_uuid = par.pop('uuid', None)
+                parent_user = par.pop('user', None)
+                par_password = par.pop('password', None)
+                par.pop('confirm_password', None)
+                
+                if not parent_user:
+                    # If par_uuid is present, we might want to keep the existing user or create a new one
+                    if par_uuid:
+                        existing_par_link = StudentParentDetails.objects.get(uuid=par_uuid)
+                        parent_user = existing_par_link.user
+                        if par_password:
+                            parent_user.set_password(par_password)
+                            parent_user.save()
+                    else:
+                        # Create new parent user
+                        p_username = generate_user_code(school, UserRoles.PARENT)
+                        parent_user = Users.objects.create(
+                            username=p_username,
+                            role=UserRoles.PARENT,
+                            school=school,
+                            first_name=par.get('father_name', 'Parent'),
+                            email=par.get('father_email'),
+                            phone_number=par.get('father_phone')
+                        )
+                        parent_user.set_password(par_password)
+                        parent_user.save()
+                else:
+                    # User was provided (Existing parent linkage)
+                    # password check already happened in validate()
+                    pass
+                
+                if par_uuid:
+                    # Update fields, ensuring user is correctly set
+                    par['user'] = parent_user
+                    StudentParentDetails.objects.filter(uuid=par_uuid).update(**par)
+                else:
+                    StudentParentDetails.objects.create(
+                        student=instance,
+                        user=parent_user,
+                        **par
+                    )
+
         return instance
