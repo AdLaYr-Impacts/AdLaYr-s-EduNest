@@ -30,6 +30,7 @@ from common.choices import (
     CasteCategory
 )
 from drf_spectacular.utils import extend_schema_field
+from django_countries.serializer_fields import CountryField
 from common.helper import generate_user_code
 
 
@@ -99,7 +100,7 @@ class TeacherSerializer(serializers.ModelSerializer):
     alternative_phone_number = serializers.CharField(source='user.alternative_phone_number', required=False, allow_blank=True)
     profile_picture = serializers.ImageField(source='user.profile_picture', required=False, allow_null=True)
     aadhaar_number = serializers.CharField(source='user.aadhaar_number', required=False, allow_blank=True)
-    nationality = serializers.CharField(source='user.nationality', required=False, allow_blank=True)
+    nationality = CountryField(source='user.nationality', required=False, allow_blank=True)
     passport = serializers.CharField(source='user.passport', required=False, allow_blank=True)
     date_of_birth = serializers.DateField(source='user.date_of_birth', required=False, allow_null=True)
     gender = serializers.ChoiceField(source='user.gender', choices=UserGender.choices, required=False, allow_blank=True)
@@ -890,6 +891,7 @@ class StudentParentSerializer(serializers.ModelSerializer):
         required=False,
         allow_null=True
     )
+    username = serializers.CharField(source='user.username', read_only=True)
     # Fields for parent user creation
     password = serializers.CharField(write_only=True, required=False)
     confirm_password = serializers.CharField(write_only=True, required=False)
@@ -897,7 +899,7 @@ class StudentParentSerializer(serializers.ModelSerializer):
     class Meta:
         model = StudentParentDetails
         fields = [
-            'id', 'parent_user_uuid', 'father_name', 'father_occupation', 
+            'id', 'parent_user_uuid', 'username', 'father_name', 'father_occupation', 
             'father_phone', 'father_email', 'mother_name', 'mother_occupation', 
             'mother_phone', 'mother_email', 'gurdian_name', 'gurdian_releation', 
             'gurdian_phone', 'gurdian_email', 'password', 'confirm_password'
@@ -943,7 +945,7 @@ class StudentSerializer(serializers.ModelSerializer):
     phone_number = serializers.CharField(source='user.phone_number', required=False, allow_null=True, allow_blank=True)
     profile_picture = serializers.ImageField(source='user.profile_picture', required=False, allow_null=True)
     aadhaar_number = serializers.CharField(source='user.aadhaar_number', required=False, allow_blank=True)
-    nationality = serializers.CharField(source='user.nationality', required=False, allow_blank=True)
+    nationality = CountryField(source='user.nationality', required=False, allow_blank=True)
     date_of_birth = serializers.DateField(source='user.date_of_birth', required=False, allow_null=True)
     gender = serializers.ChoiceField(source='user.gender', choices=UserGender.choices, required=False, allow_blank=True)
     blood_group = serializers.CharField(source='user.blood_group', required=False, allow_blank=True)

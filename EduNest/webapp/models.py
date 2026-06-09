@@ -320,6 +320,11 @@ class StudentsAdmissionDetails(BaseModel):
         verbose_name = 'Student Admission Detail'
         verbose_name_plural = 'Students Admission Details'
 
+    def save(self, *args, **kwargs):
+        if self.admission_number == "":
+            self.admission_number = None
+        super().save(*args, **kwargs)
+
     def __str__(self):
         return f"[{self.id}] {self.student.user.get_full_name()} school: {self.student.school.name}"
     
@@ -368,6 +373,11 @@ class StudentAcademicdetails(BaseModel):
     room_number = models.CharField(max_length=30, null=True, blank=True)    
     warden_name = models.CharField(max_length=255, null=True, blank=True)
     warden_phone = models.CharField(max_length=15, null=True, blank=True)
+
+    def save(self, *args, **kwargs):
+        if self.register_number == "":
+            self.register_number = None
+        super().save(*args, **kwargs)
 
     class Meta:
         ordering = ["-created_at"]
