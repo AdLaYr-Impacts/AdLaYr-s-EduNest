@@ -80,6 +80,8 @@ class TeacherEmploymentSerializer(serializers.ModelSerializer):
         return data
 
 class TeacherAddressSerializer(serializers.ModelSerializer):
+    Country = CountryField(required=False, allow_blank=True)
+
     class Meta:
         model = AddressBook
         fields = [
