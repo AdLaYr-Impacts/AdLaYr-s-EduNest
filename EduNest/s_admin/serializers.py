@@ -2,6 +2,7 @@ from rest_framework import serializers
 from django.db import transaction
 from webapp.models import School, SchoolContact, SchoolRegistration, AddressBook
 from common.choices import AddressType
+from django_countries.serializer_fields import CountryField
 
 class SchoolContactSerializer(serializers.ModelSerializer):
     class Meta:
@@ -14,6 +15,8 @@ class SchoolRegistrationSerializer(serializers.ModelSerializer):
         exclude = ['school']
 
 class AddressBookSerializer(serializers.ModelSerializer):
+    Country = CountryField(required=False, allow_blank=True)
+
     class Meta:
         model = AddressBook
         exclude = ['school', 'user']

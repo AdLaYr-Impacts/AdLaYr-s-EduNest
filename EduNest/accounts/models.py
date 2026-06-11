@@ -35,5 +35,10 @@ class Users(AbstractUser):
         verbose_name = 'User'
         verbose_name_plural = 'Users'
 
+    def save(self, *args, **kwargs):
+        if self.email == "":
+            self.email = None
+        super().save(*args, **kwargs)
+
     def __str__(self):
         return f"[{self.id}] {self.username}: {self.role}"
