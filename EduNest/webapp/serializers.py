@@ -185,7 +185,7 @@ class TeacherSerializer(serializers.ModelSerializer):
         # Email uniqueness check for new users
         email = user_data.get('email')
         if email:
-            query = Users.objects.filter(email=email, is_deleted=False)
+            query = Users.objects.filter(email=email)
             if self.instance:
                 query = query.exclude(id=self.instance.user.id)
             if query.exists():
@@ -1048,7 +1048,7 @@ class StudentSerializer(serializers.ModelSerializer):
 
         email = user_data.get('email')
         if email:
-            query = Users.objects.filter(email=email, is_deleted=False)
+            query = Users.objects.filter(email=email)
             if self.instance:
                 query = query.exclude(id=self.instance.user.id)
             if query.exists():
@@ -1115,9 +1115,6 @@ class StudentSerializer(serializers.ModelSerializer):
                     username=p_username,
                     role=UserRoles.PARENT,
                     school=school,
-                    first_name=parent_data.get('father_name', 'Parent'),
-                    email=parent_data.get('father_email'),
-                    phone_number=parent_data.get('father_phone')
                 )
                 parent_user.set_password(par_password)
                 parent_user.save()
