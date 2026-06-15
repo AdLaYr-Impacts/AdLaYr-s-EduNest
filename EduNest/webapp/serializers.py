@@ -185,7 +185,7 @@ class TeacherSerializer(serializers.ModelSerializer):
         # Email uniqueness check for new users
         email = user_data.get('email')
         if email:
-            query = Users.objects.filter(email=email, is_deleted=False)
+            query = Users.objects.filter(email=email)
             if self.instance:
                 query = query.exclude(id=self.instance.user.id)
             if query.exists():
@@ -913,12 +913,13 @@ class StudentParentSerializer(serializers.ModelSerializer):
         confirm_password = data.get('confirm_password')
 
         if not parent_user:
-            # Creation mode (New parent)
-            if not password or not confirm_password:
-                # If it's an update and parent user is already assigned, we don't need passwords
-                if not self.instance or not self.instance.user:
-                    raise serializers.ValidationError({"password": "Password and confirm password are required for new parent."})
+            # Updating current or creating new parent (no parent_user_uuid provided)
+            # If creating (no instance or no instance.user), require password
+            if not self.instance or not self.instance.user:
+                 if not password or not confirm_password:
+                     raise serializers.ValidationError({"password": "Password and confirm password are required for new parent."})
             
+            # If password provided, validate it
             if password or confirm_password:
                 if password != confirm_password:
                     raise serializers.ValidationError({"password": "Passwords do not match."})
@@ -927,13 +928,35 @@ class StudentParentSerializer(serializers.ModelSerializer):
                 except Exception as e:
                     raise serializers.ValidationError({"password": list(e.messages)})
         else:
-            # Existing parent linkage
-            if not password:
-                raise serializers.ValidationError({"password": "Parent password is required to link an existing parent account."})
+            # parent_user_uuid provided
+            is_same_user = self.instance and self.instance.user == parent_user
+
+            # If instance is None (e.g., nested serializer update), check if already linked
+            if not is_same_user and not self.instance:
+                view = self.context.get('view')
+                student_uuid = view.kwargs.get('uuid') if view else None
+                if student_uuid:
+                    is_same_user = StudentParentDetails.objects.filter(
+                        student__uuid=student_uuid,
+                        user=parent_user
+                    ).exists()
+
+            if not is_same_user:
+                # Linking a NEW existing user
+                if not password:
+                    raise serializers.ValidationError({"password": "Parent password is required to link an existing parent account."})
+                if not parent_user.check_password(password):
+                    raise serializers.ValidationError({"password": "Invalid parent password. Verification failed."})
             
-            if not parent_user.check_password(password):
-                raise serializers.ValidationError({"password": "Invalid parent password. Verification failed."})
-            
+            # Allow password reset if password is provided
+            if password or confirm_password:
+                if password != confirm_password:
+                    raise serializers.ValidationError({"password": "Passwords do not match."})
+                try:
+                    validate_password(password)
+                except Exception as e:
+                    raise serializers.ValidationError({"password": list(e.messages)})
+
             school = self.context.get('school')
             if parent_user.school != school:
                 raise serializers.ValidationError({"parent_user_uuid": "This parent belongs to another school."})
@@ -984,6 +1007,19 @@ class StudentSerializer(serializers.ModelSerializer):
             'password', 'confirm_password'
         ]
 
+    def get_fields(self):
+        fields = super().get_fields()
+        if self.instance:
+            if 'address' in fields:
+                fields['address'].instance = self.instance.user.user_address.first() if self.instance.user else None
+            if 'admission_details' in fields:
+                fields['admission_details'].instance = self.instance.student_admission_details.first()
+            if 'academic_details' in fields:
+                fields['academic_details'].instance = self.instance.student_academic_details.first()
+            if 'parent_details' in fields:
+                fields['parent_details'].instance = self.instance.student_parent_details.first()
+        return fields
+
     def validate_aadhaar_number(self, value):
         if value and not re.match(r'^\d{12}$', value):
             raise serializers.ValidationError("Aadhaar number must be 12 digits.")
@@ -1012,7 +1048,7 @@ class StudentSerializer(serializers.ModelSerializer):
 
         email = user_data.get('email')
         if email:
-            query = Users.objects.filter(email=email, is_deleted=False)
+            query = Users.objects.filter(email=email)
             if self.instance:
                 query = query.exclude(id=self.instance.user.id)
             if query.exists():
@@ -1079,9 +1115,6 @@ class StudentSerializer(serializers.ModelSerializer):
                     username=p_username,
                     role=UserRoles.PARENT,
                     school=school,
-                    first_name=parent_data.get('father_name', 'Parent'),
-                    email=parent_data.get('father_email'),
-                    phone_number=parent_data.get('father_phone')
                 )
                 parent_user.set_password(par_password)
                 parent_user.save()
@@ -1163,9 +1196,6 @@ class StudentSerializer(serializers.ModelSerializer):
             if not parent_user:
                 if parent_obj and parent_obj.user:
                     parent_user = parent_obj.user
-                    if par_password:
-                        parent_user.set_password(par_password)
-                        parent_user.save()
                 else:
                     # Create new parent user
                     p_username = generate_user_code(school, UserRoles.PARENT)
@@ -1177,8 +1207,10 @@ class StudentSerializer(serializers.ModelSerializer):
                         email=parent_data.get('father_email'),
                         phone_number=parent_data.get('father_phone')
                     )
-                    parent_user.set_password(par_password)
-                    parent_user.save()
+            
+            if parent_user and par_password:
+                parent_user.set_password(par_password)
+                parent_user.save()
             
             if parent_obj:
                 for attr, value in parent_data.items():
