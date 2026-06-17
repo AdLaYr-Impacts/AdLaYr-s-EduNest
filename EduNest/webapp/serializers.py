@@ -1042,7 +1042,7 @@ class StudentSerializer(serializers.ModelSerializer):
 
     def get_fields(self):
         fields = super().get_fields()
-        if self.instance:
+        if self.instance and isinstance(self.instance, Students):
             if 'address' in fields:
                 fields['address'].instance = self.instance.user.user_address.first() if self.instance.user else None
             if 'admission_details' in fields:

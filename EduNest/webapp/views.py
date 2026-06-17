@@ -384,3 +384,33 @@ class StudentViewSet(viewsets.ModelViewSet):
         
         instance.is_active = False
         instance.save()
+
+    @extend_schema(tags=['Students'])
+    @action(detail=True, methods=['delete'], url_path='delete-credential')
+    def delete_parent_credential(self, request, uuid=None):
+        instance = self.get_object()
+        school = get_school(self)
+    
+        parent_detail = instance.student_parent_details.first()
+        if parent_detail and parent_detail.user:
+            parent_user = parent_detail.user
+            
+            if instance.school != school:
+                return Response(
+                    {"error": "This student instance belongs to another school."}, 
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            parent_detail.user = None
+            parent_detail.save(update_fields=['user'])
+            parent_user.delete()
+            
+            return Response(
+                {"message": "Parent user successfully deleted and unlinked."}, 
+                status=status.HTTP_204_NO_CONTENT
+            )
+            
+        return Response(
+            {"message": "No parent user linked to this student."}, 
+            status=status.HTTP_400_BAD_REQUEST
+        )
