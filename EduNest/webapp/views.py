@@ -337,6 +337,11 @@ class SubjectGroupViewSet(viewsets.ModelViewSet):
     update=extend_schema(tags=['Students']),
     partial_update=extend_schema(tags=['Students']),
     destroy=extend_schema(tags=['Students']),
+    delete_parent_credential=extend_schema(
+        tags=['Students'],
+        summary="Delete student parent credential",
+        description="Deletes the login credentials of the student's parent.",
+    ),
 )
 class StudentViewSet(viewsets.ModelViewSet):
     serializer_class = StudentSerializer
@@ -387,7 +392,6 @@ class StudentViewSet(viewsets.ModelViewSet):
         instance.is_active = False
         instance.save()
 
-    @extend_schema(tags=['Students'])
     @action(detail=True, methods=['delete'], url_path='delete-credential')
     def delete_parent_credential(self, request, uuid=None, **kwargs):
         instance = get_object_or_404(self.get_queryset(), uuid=uuid)
