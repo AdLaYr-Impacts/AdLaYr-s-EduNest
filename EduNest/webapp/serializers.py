@@ -825,6 +825,24 @@ class StudentAdmissionSerializer(serializers.ModelSerializer):
             'academic_year', 'student_status', 'previous_school'
         ]
 
+    def validate(self, data):
+        admission_number = data.get('admission_number')
+        if admission_number:
+            school = self.context.get('school')
+            query = StudentsAdmissionDetails.objects.filter(
+                student__school=school,
+                admission_number=admission_number
+            )
+            if self.instance:
+                query = query.exclude(pk=self.instance.pk)
+            
+            if query.exists():
+                raise serializers.ValidationError({
+                    "admission_number": f"Admission number '{admission_number}' already exists within this school."
+                })
+        return data
+
+
 class StudentAcademicSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(source='uuid', read_only=True)
     class_uuid = serializers.SlugRelatedField(
@@ -863,11 +881,25 @@ class StudentAcademicSerializer(serializers.ModelSerializer):
         subject_group = data.get('subject_group')
         roll_number = data.get('roll_number')
 
+        # Fallback to existing values if not provided in partial updates (PUT/PATCH)
+        if self.instance:
+            if student_class is None and 'student_class' not in data:
+                student_class = self.instance.student_class
+            if subject_group is None and 'subject_group' not in data:
+                subject_group = self.instance.subject_group
+
         if student_class and student_class.school != school:
             raise serializers.ValidationError({"class_uuid": "Class does not belong to this school."})
         
         if subject_group and subject_group.school != school:
             raise serializers.ValidationError({"subject_group_uuid": "Subject group does not belong to this school."})
+
+        # Check if student_class belongs to subject_group (when subject_group is set)
+        if subject_group and student_class:
+            if not subject_group.classes.filter(pk=student_class.pk).exists():
+                raise serializers.ValidationError({
+                    "subject_group_uuid": f"The class '{student_class.class_name} {student_class.section}' does not belong to the subject group '{subject_group.name}'."
+                })
 
         if student_class and roll_number:
             query = StudentAcademicdetails.objects.filter(
@@ -883,6 +915,7 @@ class StudentAcademicSerializer(serializers.ModelSerializer):
                 })
 
         return data
+
 
 class StudentParentSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(source='uuid', read_only=True)
@@ -1009,7 +1042,7 @@ class StudentSerializer(serializers.ModelSerializer):
 
     def get_fields(self):
         fields = super().get_fields()
-        if self.instance:
+        if self.instance and isinstance(self.instance, Students):
             if 'address' in fields:
                 fields['address'].instance = self.instance.user.user_address.first() if self.instance.user else None
             if 'admission_details' in fields:

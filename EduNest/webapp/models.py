@@ -305,7 +305,7 @@ class Students(BaseModel):
     
 class StudentsAdmissionDetails(BaseModel):
     student = models.ForeignKey(Students, null=True, blank=True, on_delete=models.CASCADE, related_name="student_admission_details")
-    admission_number = models.CharField(max_length=30, unique=True, null=True, blank=True)
+    admission_number = models.CharField(max_length=30, null=True, blank=True)
     admission_type = models.CharField(max_length=30, null=True, blank=True, choices=AdmissionType.choices)
     admission_date = models.DateField(null=True, blank=True)
     academic_year = models.PositiveSmallIntegerField(
