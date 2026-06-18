@@ -75,4 +75,7 @@ urlpatterns = [
         'patch': 'partial_update',
         'delete': 'destroy'
     })),
+    path('students/<uuid:uuid>/delete-credential/', StudentViewSet.as_view({
+        'delete': 'delete_parent_credential'
+    })),
 ]

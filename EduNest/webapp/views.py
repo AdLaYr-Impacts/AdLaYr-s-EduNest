@@ -1,10 +1,12 @@
+from django.db import transaction
+from django.shortcuts import get_object_or_404
 from rest_framework import viewsets, status, filters
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from django_filters.rest_framework import DjangoFilterBackend
 
 from django.db.models import Count, Prefetch
-from .models import SchoolTeacher, SchoolClass, Subjects, ClassSubjects, SubjectGroup, Students
+from .models import SchoolTeacher, SchoolClass, Subjects, ClassSubjects, SubjectGroup, Students, StudentParentDetails
 from .serializers import (
     TeacherSerializer, SchoolClassSerializer, TeacherSummarySerializer, 
     SubjectSerializer, ClassListSerializer, SubjectListSerializer,
@@ -387,30 +389,23 @@ class StudentViewSet(viewsets.ModelViewSet):
 
     @extend_schema(tags=['Students'])
     @action(detail=True, methods=['delete'], url_path='delete-credential')
-    def delete_parent_credential(self, request, uuid=None):
-        instance = self.get_object()
-        school = get_school(self)
-    
-        parent_detail = instance.student_parent_details.first()
-        if parent_detail and parent_detail.user:
-            parent_user = parent_detail.user
-            
-            if instance.school != school:
-                return Response(
-                    {"error": "This student instance belongs to another school."}, 
-                    status=status.HTTP_403_FORBIDDEN
-                )
-            
+    def delete_parent_credential(self, request, uuid=None, **kwargs):
+        instance = get_object_or_404(self.get_queryset(), uuid=uuid)
+
+        parent_detail = instance.student_parent_details.filter(user__isnull=False).first()
+        if not parent_detail:
+            return Response(
+                {"detail": "No parent user linked to this student."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        parent_user = parent_detail.user
+
+        with transaction.atomic():
             parent_detail.user = None
             parent_detail.save(update_fields=['user'])
-            parent_user.delete()
-            
-            return Response(
-                {"message": "Parent user successfully deleted and unlinked."}, 
-                status=status.HTTP_204_NO_CONTENT
-            )
-            
-        return Response(
-            {"message": "No parent user linked to this student."}, 
-            status=status.HTTP_400_BAD_REQUEST
-        )
+
+            if not StudentParentDetails.objects.filter(user=parent_user).exists():
+                parent_user.delete()
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
