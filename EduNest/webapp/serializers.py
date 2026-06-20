@@ -1276,3 +1276,56 @@ class StudentSerializer(serializers.ModelSerializer):
         representation['parent_details'] = StudentParentSerializer(parent).data if parent else None
             
         return representation
+
+
+# Supportive Serializers for Student CRUD APIs
+class SchoolClassSupportSerializer(serializers.ModelSerializer):
+    name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SchoolClass
+        fields = ['uuid', 'name']
+
+    @extend_schema_field(serializers.CharField)
+    def get_name(self, obj):
+        return f"{obj.class_name} - {obj.section}" if obj.section else obj.class_name
+
+
+class StudentSupportSerializer(serializers.ModelSerializer):
+    user_code = serializers.CharField(source='user.username', read_only=True)
+    full_name = serializers.CharField(source='user.get_full_name', read_only=True)
+    profile_picture = serializers.ImageField(source='user.profile_picture', read_only=True)
+    roll_number = serializers.CharField(source='academic_details.roll_number', read_only=True)
+    register_number = serializers.CharField(source='academic_details.register_number', read_only=True)
+    parent_user_code = serializers.CharField(source='parent_details.user.username', read_only=True)
+    father_name = serializers.CharField(source='parent_details.father_name', read_only=True)
+    father_phone = serializers.CharField(source='parent_details.father_phone', read_only=True)
+    mother_name = serializers.CharField(source='parent_details.mother_name', read_only=True)
+    mother_phone = serializers.CharField(source='parent_details.mother_phone', read_only=True)
+    guardian_name = serializers.CharField(source='parent_details.gurdian_name', read_only=True)
+    guardian_phone = serializers.CharField(source='parent_details.gurdian_phone', read_only=True)
+    status = serializers.CharField(source='admission_details.student_status', read_only=True)
+
+    class Meta:
+        model = Students
+        fields = [
+            'user_code', 'full_name', 'profile_picture', 'roll_number', 
+            'register_number', 'parent_user_code', 'father_name', 'father_phone', 
+            'mother_name', 'mother_phone', 'guardian_name', 'guardian_phone', 'status'
+        ]
+
+    def to_representation(self, instance):
+        instance.academic_details = instance.student_academic_details.first()
+        instance.parent_details = instance.student_parent_details.first()
+        instance.admission_details = instance.student_admission_details.first()
+        
+        return super().to_representation(instance)
+
+
+class SubjectSupportSerializer(serializers.ModelSerializer):
+    subject_uuid = serializers.UUIDField(source='uuid', read_only=True)
+    subject_name = serializers.CharField(source='name', read_only=True)
+
+    class Meta:
+        model = Subjects
+        fields = ['subject_uuid', 'subject_name']
