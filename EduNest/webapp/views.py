@@ -11,7 +11,8 @@ from .serializers import (
     TeacherSerializer, SchoolClassSerializer, TeacherSummarySerializer, 
     SubjectSerializer, ClassListSerializer, SubjectListSerializer,
     ClassSubjectSerializer, ClassSubjectGroupSerializer, SubjectGroupSerializer,
-    StudentSerializer
+    StudentSerializer, SchoolClassSupportSerializer, StudentSupportSerializer, 
+    SubjectSupportSerializer
 )
 from permissions.permissions import IsSchoolAdmin
 from common.pagination import StandardPagination
@@ -369,6 +370,7 @@ class StudentViewSet(viewsets.ModelViewSet):
         ).prefetch_related(
             'student_admission_details',
             'student_parent_details',
+            'student_parent_details__user',
             'student_academic_details',
             'student_academic_details__student_class',
             'student_academic_details__subject_group'
@@ -413,3 +415,83 @@ class StudentViewSet(viewsets.ModelViewSet):
                 parent_user.delete()
 
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class StudentSupportView(viewsets.ViewSet):
+    permission_classes = [IsSchoolAdmin]
+    pagination_class = StandardPagination
+
+    @extend_schema(
+        tags=['Students'],
+        summary="List all classes within school",
+        responses={200: SchoolClassSupportSerializer(many=True)}
+    )
+    def student_classes(self, request, *args, **kwargs):
+        school = get_school(self)
+        queryset = SchoolClass.objects.filter(school=school, is_active=True).order_by('class_name', 'section')
+        
+        paginator = self.pagination_class()
+        page = paginator.paginate_queryset(queryset, request, view=self)
+        if page is not None:
+            serializer = SchoolClassSupportSerializer(page, many=True)
+            return paginator.get_paginated_response(serializer.data)
+
+        serializer = SchoolClassSupportSerializer(queryset, many=True)
+        return Response(serializer.data)
+
+    @extend_schema(
+        tags=['Students'],
+        summary="List all students based on class uuid",
+        responses={200: StudentSupportSerializer(many=True)}
+    )
+    def class_students(self, request, school_id, class_uuid=None, *args, **kwargs):
+        school = get_school(self)
+        school_class = get_object_or_404(SchoolClass, uuid=class_uuid, school=school)
+        
+        queryset = Students.objects.filter(
+            school=school,
+            student_academic_details__student_class=school_class,
+            user__is_deleted=False
+        ).select_related(
+            'user'
+        ).prefetch_related(
+            'student_academic_details',
+            'student_parent_details',
+            'student_parent_details__user',
+            'student_admission_details'
+        ).order_by('user__first_name', 'user__last_name')
+
+        paginator = self.pagination_class()
+        page = paginator.paginate_queryset(queryset, request, view=self)
+        if page is not None:
+            serializer = StudentSupportSerializer(page, many=True)
+            return paginator.get_paginated_response(serializer.data)
+
+        serializer = StudentSupportSerializer(queryset, many=True)
+        return Response(serializer.data)
+
+    @extend_schema(
+        tags=['Students'],
+        summary="List all subjects based on class uuid",
+        responses={200: SubjectSupportSerializer(many=True)}
+    )
+    def class_subjects(self, request, class_uuid=None, *args, **kwargs):
+        school = get_school(self)
+        school_class = get_object_or_404(SchoolClass, uuid=class_uuid, school=school)
+        
+        queryset = ClassSubjects.objects.filter(
+            subject_class=school_class,
+            subject__school=school,
+            is_active=True
+        ).select_related('subject').order_by('sort_order', 'subject__name')
+
+        subjects = [cs.subject for cs in queryset if cs.subject]
+        
+        paginator = self.pagination_class()
+        page = paginator.paginate_queryset(subjects, request, view=self)
+        if page is not None:
+            serializer = SubjectSupportSerializer(page, many=True)
+            return paginator.get_paginated_response(serializer.data)
+
+        serializer = SubjectSupportSerializer(subjects, many=True)
+        return Response(serializer.data)
