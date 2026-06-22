@@ -2,7 +2,7 @@ from django.urls import path
 from .views import (
     TeacherViewSet, SchoolClassViewSet, TeacherSummaryViewSet, 
     SubjectViewSet, SubjectListViews, ClassSubjectViewSet, SubjectGroupViewSet,
-    StudentViewSet, StudentSupportView
+    StudentViewSet, StudentSupportView, StudentAttendanceViewSet
 )
 
 urlpatterns = [
@@ -86,5 +86,14 @@ urlpatterns = [
     })),
     path('students/class/<uuid:class_uuid>/subjects/', StudentSupportView.as_view({
         'get': 'class_subjects'
+    })),
+    path('student_attendance/<uuid:class_uuid>/', StudentAttendanceViewSet.as_view({
+        'get': 'list',
+        'post': 'create'
+    })),
+    path('student_attendance/<uuid:class_uuid>/<uuid:uuid>/', StudentAttendanceViewSet.as_view({
+        'get': 'retrieve',
+        'put': 'update',
+        'patch': 'partial_update'
     })),
 ]
