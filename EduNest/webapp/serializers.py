@@ -1412,7 +1412,6 @@ class StudentAttendanceListSerializer(serializers.ListSerializer):
 
 
 class StudentAttendanceSerializer(serializers.ModelSerializer):
-    id = serializers.UUIDField(source='uuid', read_only=True)
     student_uuid = serializers.SlugRelatedField(
         slug_field='uuid',
         queryset=Students.objects.all(),
@@ -1433,7 +1432,7 @@ class StudentAttendanceSerializer(serializers.ModelSerializer):
         model = StudentAttendance
         list_serializer_class = StudentAttendanceListSerializer
         fields = [
-            'id', 'student_uuid', 'date', 'status', 'note',
+            'id', 'uuid', 'student_uuid', 'date', 'status', 'note',
             'student_name', 'student_code', 'roll_number', 'attendance_date'
         ]
 
@@ -1580,12 +1579,11 @@ class StudentAttendanceSerializer(serializers.ModelSerializer):
 
 
 class PeriodSerializer(serializers.ModelSerializer):
-    id = serializers.UUIDField(source='uuid', read_only=True)
-
+    
     class Meta:
         model = Period
         fields = [
-            'id', 'name', 'start_time', 'end_time',
+            'id', 'uuid', 'name', 'start_time', 'end_time',
             'is_break', 'order'
         ]
         read_only_fields = ['id']
