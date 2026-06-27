@@ -6,13 +6,16 @@ from rest_framework.decorators import action
 from django_filters.rest_framework import DjangoFilterBackend
 
 from django.db.models import Count, Prefetch
-from .models import SchoolTeacher, SchoolClass, Subjects, ClassSubjects, SubjectGroup, Students, StudentParentDetails, AttendanceSession, StudentAttendance
+from .models import (
+    SchoolTeacher, SchoolClass, Subjects, ClassSubjects, SubjectGroup, Students, 
+    StudentParentDetails, AttendanceSession, StudentAttendance, Period
+)
 from .serializers import (
     TeacherSerializer, SchoolClassSerializer, TeacherSummarySerializer, 
     SubjectSerializer, ClassListSerializer, SubjectListSerializer,
     ClassSubjectSerializer, ClassSubjectGroupSerializer, SubjectGroupSerializer,
     StudentSerializer, SchoolClassSupportSerializer, StudentSupportSerializer, 
-    SubjectSupportSerializer, StudentAttendanceSerializer
+    SubjectSupportSerializer, StudentAttendanceSerializer, PeriodSerializer
 )
 from permissions.permissions import IsSchoolAdmin, IsSchoolAdminOrClassTeacher
 from common.pagination import StandardPagination
@@ -21,7 +24,7 @@ from common.choices import UserRoles
 from rest_framework.exceptions import PermissionDenied
 from rest_framework import serializers
 
-from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter, OpenApiTypes, OpenApiResponse
+from drf_spectacular.utils import extend_schema, extend_schema_view
 
 @extend_schema_view(
     list=extend_schema(tags=['Teachers']),
@@ -579,3 +582,63 @@ class StudentAttendanceViewSet(viewsets.ModelViewSet):
             {"detail": "Method \"DELETE\" not allowed."},
             status=status.HTTP_405_METHOD_NOT_ALLOWED
         )
+
+
+@extend_schema_view(
+    list=extend_schema(tags=['Periods']),
+    create=extend_schema(tags=['Periods']),
+    retrieve=extend_schema(tags=['Periods']),
+    update=extend_schema(tags=['Periods']),
+    partial_update=extend_schema(tags=['Periods']),
+    destroy=extend_schema(tags=['Periods']),
+)
+class PeriodViewSet(viewsets.ModelViewSet):
+    serializer_class = PeriodSerializer
+    permission_classes = [IsSchoolAdmin]
+    pagination_class = StandardPagination
+    lookup_field = 'uuid'
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['class_obj__uuid']
+    search_fields = ['name']
+    ordering_fields = ['created_at', 'start_time', 'end_time', 'order']
+    ordering = ['order', 'start_time']
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        if getattr(self, "swagger_fake_view", False):
+            return
+        
+        class_uuid = self.kwargs.get('class_uuid')
+        try:
+            school_obj = get_school(self)
+            class_obj = SchoolClass.objects.get(uuid=class_uuid, school=school_obj)
+        except SchoolClass.DoesNotExist:
+            raise serializers.ValidationError({"class_uuid": "Class not found in this school."})
+        
+        self.school_obj = school_obj
+        self.class_obj = class_obj
+
+    def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False):
+            return Period.objects.none()
+
+        return Period.objects.filter(
+            school=self.school_obj,
+            class_obj=self.class_obj
+        ).select_related('school', 'class_obj').order_by(*self.ordering)
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        if not getattr(self, "swagger_fake_view", False):
+            context['school'] = self.school_obj
+            context['class_obj'] = self.class_obj
+        return context
+
+    def perform_create(self, serializer):
+        serializer.save(
+            school=self.school_obj,
+            class_obj=self.class_obj
+        )
+
+    def perform_update(self, serializer):
+        serializer.save()
