@@ -6,19 +6,22 @@ from rest_framework.decorators import action
 from django_filters.rest_framework import DjangoFilterBackend
 
 from django.db.models import Count, Prefetch
-from .models import SchoolTeacher, SchoolClass, Subjects, ClassSubjects, SubjectGroup, Students, StudentParentDetails
+from .models import SchoolTeacher, SchoolClass, Subjects, ClassSubjects, SubjectGroup, Students, StudentParentDetails, AttendanceSession, StudentAttendance
 from .serializers import (
     TeacherSerializer, SchoolClassSerializer, TeacherSummarySerializer, 
     SubjectSerializer, ClassListSerializer, SubjectListSerializer,
     ClassSubjectSerializer, ClassSubjectGroupSerializer, SubjectGroupSerializer,
     StudentSerializer, SchoolClassSupportSerializer, StudentSupportSerializer, 
-    SubjectSupportSerializer
+    SubjectSupportSerializer, StudentAttendanceSerializer
 )
-from permissions.permissions import IsSchoolAdmin
+from permissions.permissions import IsSchoolAdmin, IsSchoolAdminOrClassTeacher
 from common.pagination import StandardPagination
 from common.helper import get_school
+from common.choices import UserRoles
+from rest_framework.exceptions import PermissionDenied
+from rest_framework import serializers
 
-from drf_spectacular.utils import extend_schema, extend_schema_view
+from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter, OpenApiTypes, OpenApiResponse
 
 @extend_schema_view(
     list=extend_schema(tags=['Teachers']),
@@ -495,3 +498,84 @@ class StudentSupportView(viewsets.ViewSet):
 
         serializer = SubjectSupportSerializer(subjects, many=True)
         return Response(serializer.data)
+
+
+@extend_schema_view(
+    list=extend_schema(tags=['Students Attendance']),
+    create=extend_schema(tags=['Students Attendance']),
+    retrieve=extend_schema(tags=['Students Attendance']),
+    update=extend_schema(tags=['Students Attendance']),
+    partial_update=extend_schema(tags=['Students Attendance']),
+    destroy=extend_schema(tags=['Students Attendance']),
+)
+class StudentAttendanceViewSet(viewsets.ModelViewSet):
+    serializer_class = StudentAttendanceSerializer
+    permission_classes = [IsSchoolAdminOrClassTeacher]
+    pagination_class = StandardPagination
+    lookup_field = 'uuid'
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['session__date', 'status']
+    search_fields = ['student__user__first_name', 'student__user__last_name', 'student__user__username']
+    ordering_fields = ['created_at', 'session__date']
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        if getattr(self, "swagger_fake_view", False):
+            return
+        
+        school = get_school(self)
+        class_uuid = self.kwargs.get('class_uuid')
+
+        try:
+            class_obj = SchoolClass.objects.get(uuid=class_uuid, school=school)
+        except SchoolClass.DoesNotExist:
+            raise serializers.ValidationError({"class_uuid": "Class not found in this school."})
+
+        if request.user.role == UserRoles.CLASS_TEACHER:
+            teacher = SchoolTeacher.objects.filter(user=request.user, school=school).first()
+            if not teacher:
+                raise PermissionDenied("Teacher profile not found for this user.")
+
+            is_assigned = (
+                class_obj.class_teacher == teacher or
+                class_obj.assistant_teacher.filter(id=teacher.id).exists()
+            )
+            if not is_assigned:
+                raise PermissionDenied("You do not have permission to access attendance for this class.")
+
+        self.school = school
+        self.class_obj = class_obj
+
+    def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False):
+            return StudentAttendance.objects.none()
+
+        return StudentAttendance.objects.filter(
+            session__class_obj=self.class_obj
+        ).select_related(
+            'session',
+            'student',
+            'student__user'
+        ).prefetch_related(
+            'student__student_academic_details'
+        ).order_by('student__user__first_name', 'student__user__last_name')
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        if not getattr(self, "swagger_fake_view", False):
+            context['school'] = self.school
+            context['class_obj'] = self.class_obj
+        return context
+
+    def create(self, request, *args, **kwargs):
+        is_many = isinstance(request.data, list)
+        serializer = self.get_serializer(data=request.data, many=is_many)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    def destroy(self, request, *args, **kwargs):
+        return Response(
+            {"detail": "Method \"DELETE\" not allowed."},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED
+        )

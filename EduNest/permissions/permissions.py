@@ -61,3 +61,13 @@ class IsStudent(BasePermission):
             not request.user.is_deleted and
             request.user.role == UserRoles.STUDENT
         )
+
+class IsSchoolAdminOrClassTeacher(BasePermission):
+    def has_permission(self, request, view):
+        return bool(
+            request.user and
+            request.user.is_authenticated and
+            request.user.is_active and
+            not request.user.is_deleted and
+            request.user.role in [UserRoles.SCHOOL_ADMIN, UserRoles.CLASS_TEACHER]
+        )

@@ -3,6 +3,7 @@ import re
 from django.db import transaction
 from django.core.exceptions import ValidationError
 from django.contrib.auth.password_validation import validate_password
+from django.utils import timezone
 from rest_framework import serializers
 from accounts.models import Users
 from webapp.models import (
@@ -19,7 +20,9 @@ from webapp.models import (
     Students,
     StudentsAdmissionDetails,
     StudentParentDetails,
-    StudentAcademicdetails
+    StudentAcademicdetails,
+    AttendanceSession,
+    StudentAttendance
 )
 from common.choices import (
     UserRoles, 
@@ -27,7 +30,8 @@ from common.choices import (
     MaritalStatus, 
     AddressType,
     SubjectType,
-    CasteCategory
+    CasteCategory,
+    Attendance
 )
 from drf_spectacular.utils import extend_schema_field
 from django_countries.serializer_fields import CountryField
@@ -1309,7 +1313,7 @@ class StudentSupportSerializer(serializers.ModelSerializer):
     class Meta:
         model = Students
         fields = [
-            'user_code', 'full_name', 'profile_picture', 'roll_number', 
+            'uuid', 'user_code', 'full_name', 'profile_picture', 'roll_number', 
             'register_number', 'parent_user_code', 'father_name', 'father_phone', 
             'mother_name', 'mother_phone', 'guardian_name', 'guardian_phone', 'status'
         ]
@@ -1329,3 +1333,245 @@ class SubjectSupportSerializer(serializers.ModelSerializer):
     class Meta:
         model = Subjects
         fields = ['subject_uuid', 'subject_name']
+
+
+class StudentAttendanceListSerializer(serializers.ListSerializer):
+    @transaction.atomic
+    def create(self, validated_data):
+        school = self.context.get('school')
+        class_obj = self.context.get('class_obj')
+        user = self.context.get('request').user
+        
+        # Validate that all records have the same date
+        dates = {item['date'] for item in validated_data}
+        if len(dates) > 1:
+            raise serializers.ValidationError("All bulk attendance records must be for the same date.")
+        date = list(dates)[0]
+        
+        # Validate no duplicate student_uuid in the request itself
+        student_ids = [item['student'].id for item in validated_data]
+        if len(student_ids) != len(set(student_ids)):
+            raise serializers.ValidationError("Duplicate student entries found in the request.")
+
+        # Get or create the AttendanceSession
+        session, created = AttendanceSession.objects.get_or_create(
+            class_obj=class_obj,
+            date=date,
+            defaults={
+                'created_by': user,
+                'total_students': 0,
+                'present_count': 0,
+                'absent_count': 0,
+                'leave_count': 0
+            }
+        )
+        
+        if created:
+            total_students = Students.objects.filter(
+                school=school,
+                student_academic_details__student_class=class_obj,
+                user__is_deleted=False
+            ).count()
+            session.total_students = total_students
+            session.save()
+
+        # Check database duplicates for all requested students
+        existing_students = StudentAttendance.objects.filter(
+            session=session,
+            student__id__in=student_ids
+        ).values_list('student__uuid', flat=True)
+        if existing_students:
+            raise serializers.ValidationError("Attendace already marked")
+
+        # Prepare StudentAttendance objects
+        attendance_objects = []
+        for item in validated_data:
+            attendance_objects.append(
+                StudentAttendance(
+                    session=session,
+                    student=item['student'],
+                    status=item['status'],
+                    note=item.get('note', '')
+                )
+            )
+            
+        created_records = StudentAttendance.objects.bulk_create(attendance_objects)
+        
+        present_count = StudentAttendance.objects.filter(session=session, status=Attendance.P).count()
+        absent_count = StudentAttendance.objects.filter(session=session, status=Attendance.A).count()
+        leave_count = StudentAttendance.objects.filter(session=session, status=Attendance.L).count()
+        
+        session.present_count = present_count
+        session.absent_count = absent_count
+        session.leave_count = leave_count
+        session.save()
+        
+        return created_records
+
+
+class StudentAttendanceSerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(source='uuid', read_only=True)
+    student_uuid = serializers.SlugRelatedField(
+        slug_field='uuid',
+        queryset=Students.objects.all(),
+        source='student',
+        error_messages={
+            'does_not_exist': 'Student with this UUID does not exist.',
+            'invalid': 'Invalid UUID format.'
+        }
+    )
+    date = serializers.DateField(required=True, write_only=True)
+    
+    student_name = serializers.CharField(source='student.user.get_full_name', read_only=True)
+    student_code = serializers.CharField(source='student.user.username', read_only=True)
+    roll_number = serializers.SerializerMethodField(read_only=True)
+    attendance_date = serializers.DateField(source='session.date', read_only=True)
+
+    class Meta:
+        model = StudentAttendance
+        list_serializer_class = StudentAttendanceListSerializer
+        fields = [
+            'id', 'student_uuid', 'date', 'status', 'note',
+            'student_name', 'student_code', 'roll_number', 'attendance_date'
+        ]
+
+    def get_roll_number(self, obj):
+        if obj.student:
+            academic = obj.student.student_academic_details.first()
+            return academic.roll_number if academic else None
+        return None
+
+    def validate_status(self, value):
+        if not value:
+            raise serializers.ValidationError("Status is required.")
+        if value not in Attendance.values:
+            raise serializers.ValidationError("Invalid status value.")
+        return value
+
+    def validate_note(self, value):
+        if value is not None:
+            if value.strip() == "" and value != "":
+                raise serializers.ValidationError("Note cannot contain only whitespace.")
+        return value
+
+    def validate_date(self, value):
+        if not value:
+            raise serializers.ValidationError("Date is required.")
+        if value > datetime.date.today():
+            raise serializers.ValidationError("Attendance cannot be marked for future dates.")
+        return value
+
+    def validate(self, data):
+        school = self.context.get('school')
+        class_obj = self.context.get('class_obj')
+        user = self.context.get('request').user
+        
+        student = data.get('student')
+        date = data.get('date')
+        
+        if self.instance:
+            created_at = self.instance.created_at
+            now = timezone.now()
+            time_difference = now - created_at
+            
+            if user.role == UserRoles.CLASS_TEACHER:
+                if time_difference > datetime.timedelta(hours=10):
+                    raise serializers.ValidationError("Edit is not allowed after 10 hours of creation.")
+            elif user.role == UserRoles.SCHOOL_ADMIN:
+                if time_difference > datetime.timedelta(days=2):
+                    raise serializers.ValidationError("Edit is not allowed after 2 days of creation.")
+            
+            student = self.instance.student
+            date = self.instance.session.date
+
+        if student:
+            if student.school != school:
+                raise serializers.ValidationError({"student_uuid": "Student does not belong to this school."})
+            
+            academic = student.student_academic_details.filter(student_class=class_obj).first()
+            if not academic:
+                raise serializers.ValidationError({"student_uuid": "Student is not assigned to this class."})
+
+        if date and student:
+            query = StudentAttendance.objects.filter(
+                session__class_obj__school=school,
+                session__date=date,
+                student=student
+            )
+            if self.instance:
+                query = query.exclude(pk=self.instance.pk)
+            if query.exists():
+                raise serializers.ValidationError("Attendace already marked")
+
+        return data
+
+    @transaction.atomic
+    def create(self, validated_data):
+        school = self.context.get('school')
+        class_obj = self.context.get('class_obj')
+        user = self.context.get('request').user
+        
+        date = validated_data['date']
+        student = validated_data['student']
+        status = validated_data['status']
+        note = validated_data.get('note', '')
+
+        session, created = AttendanceSession.objects.get_or_create(
+            class_obj=class_obj,
+            date=date,
+            defaults={
+                'created_by': user,
+                'total_students': 0,
+                'present_count': 0,
+                'absent_count': 0,
+                'leave_count': 0
+            }
+        )
+        
+        if created:
+            total_students = Students.objects.filter(
+                school=school,
+                student_academic_details__student_class=class_obj,
+                user__is_deleted=False
+            ).count()
+            session.total_students = total_students
+            session.save()
+            
+        if StudentAttendance.objects.filter(session=session, student=student).exists():
+            raise serializers.ValidationError("Attendace already marked")
+            
+        attendance_record = StudentAttendance.objects.create(
+            session=session,
+            student=student,
+            status=status,
+            note=note
+        )
+        
+        present_count = StudentAttendance.objects.filter(session=session, status=Attendance.P).count()
+        absent_count = StudentAttendance.objects.filter(session=session, status=Attendance.A).count()
+        leave_count = StudentAttendance.objects.filter(session=session, status=Attendance.L).count()
+        
+        session.present_count = present_count
+        session.absent_count = absent_count
+        session.leave_count = leave_count
+        session.save()
+        
+        return attendance_record
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        instance.status = validated_data.get('status', instance.status)
+        instance.note = validated_data.get('note', instance.note)
+        instance.save()
+        
+        session = instance.session
+        present_count = StudentAttendance.objects.filter(session=session, status=Attendance.P).count()
+        absent_count = StudentAttendance.objects.filter(session=session, status=Attendance.A).count()
+        leave_count = StudentAttendance.objects.filter(session=session, status=Attendance.L).count()
+        
+        session.present_count = present_count
+        session.absent_count = absent_count
+        session.leave_count = leave_count
+        session.save()
+        
+        return instance
