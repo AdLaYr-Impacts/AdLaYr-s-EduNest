@@ -59,6 +59,7 @@ class School(BaseModel):
     total_students = models.IntegerField(default=0)
     total_staffs = models.IntegerField(default=0)
     principal = models.ForeignKey("SchoolTeacher", on_delete=models.CASCADE, null=True, blank=True, related_name="school_principal")
+    academic_year = models.PositiveSmallIntegerField(default=current_year)
 
     class Meta:
         ordering = ["-created_at"]
@@ -208,7 +209,7 @@ class SchoolClass(BaseModel):
     assistant_teacher = models.ManyToManyField(SchoolTeacher, related_name="classes_as_assistant_teacher")
     class_name = models.CharField(max_length=255, null=True, blank=True)
     section = models.CharField(max_length=255, null=True, blank=True)
-    academic_year = models.PositiveSmallIntegerField(null=True, blank=True)
+    academic_year = models.PositiveSmallIntegerField(default=current_year)
     medium = models.CharField(max_length=255, null=True, blank=True, choices=ClassMedium.choices)
     board = models.CharField(max_length=255, null=True, blank=True, choices=ClassBoard.choices)
     max_strength = models.PositiveSmallIntegerField(null=True, blank=True)
@@ -293,6 +294,7 @@ class Students(BaseModel):
     mother_tongue = models.CharField(max_length=255, null=True, blank=True)
     identification_mark_1 = models.CharField(max_length=255, null=True, blank=True)
     identification_mark_2 = models.CharField(max_length=255, null=True, blank=True)
+    previous_academic_years = models.JSONField(default=list)
 
     class Meta:
         ordering = ["-created_at"]
@@ -470,17 +472,6 @@ class ClassTimetableEntry(BaseModel):
         ordering = ["-created_at"]
         verbose_name = 'Time table Entry'
         verbose_name_plural = 'Time table Entries'
-    
-    def clean(self):
-        if self.teacher:
-            conflict = ClassTimetableEntry.objects.filter(
-                teacher=self.teacher,
-                day=self.day,
-                period=self.period
-            ).exclude(id=self.id)
-
-            if conflict.exists():
-                raise ValidationError("Teacher already assigned in another class for this period.")
             
     def __str__(self):
         return f"[{self.id}] {self.timetable.school.short_name} {self.timetable.class_obj.class_name} {self.day}"
