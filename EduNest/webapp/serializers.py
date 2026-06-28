@@ -2,6 +2,7 @@ import datetime
 import re
 from django.db import transaction
 from django.core.exceptions import ValidationError
+from django.core.validators import MinValueValidator
 from django.contrib.auth.password_validation import validate_password
 from django.utils import timezone
 from rest_framework import serializers
@@ -22,7 +23,8 @@ from webapp.models import (
     StudentParentDetails,
     StudentAcademicdetails,
     AttendanceSession,
-    StudentAttendance
+    StudentAttendance,
+    Period
 )
 from common.choices import (
     UserRoles, 
@@ -1410,7 +1412,6 @@ class StudentAttendanceListSerializer(serializers.ListSerializer):
 
 
 class StudentAttendanceSerializer(serializers.ModelSerializer):
-    id = serializers.UUIDField(source='uuid', read_only=True)
     student_uuid = serializers.SlugRelatedField(
         slug_field='uuid',
         queryset=Students.objects.all(),
@@ -1431,7 +1432,7 @@ class StudentAttendanceSerializer(serializers.ModelSerializer):
         model = StudentAttendance
         list_serializer_class = StudentAttendanceListSerializer
         fields = [
-            'id', 'student_uuid', 'date', 'status', 'note',
+            'id', 'uuid', 'student_uuid', 'date', 'status', 'note',
             'student_name', 'student_code', 'roll_number', 'attendance_date'
         ]
 
@@ -1575,3 +1576,73 @@ class StudentAttendanceSerializer(serializers.ModelSerializer):
         session.save()
         
         return instance
+
+
+class PeriodSerializer(serializers.ModelSerializer):
+    
+    class Meta:
+        model = Period
+        fields = [
+            'id', 'uuid', 'name', 'start_time', 'end_time',
+            'is_break', 'order'
+        ]
+        read_only_fields = ['id']
+
+    def validate_name(self, value):
+        if not value:
+            raise serializers.ValidationError("Period name is required.")
+        if not value.strip():
+            raise serializers.ValidationError("Period name cannot be whitespace only.")
+        return value
+
+    def validate_order(self, value):
+        if value is not None and value < 0:
+            raise serializers.ValidationError("Order cannot be negative.")
+        return value
+
+    def validate(self, data):
+        school = self.context.get('school')
+        class_obj = self.context.get('class_obj')
+
+        name = data.get('name', self.instance.name if self.instance else None)
+        start_time = data.get('start_time', self.instance.start_time if self.instance else None)
+        end_time = data.get('end_time', self.instance.end_time if self.instance else None)
+        
+        # Basic validation for existence of name, start_time, end_time
+        if not name:
+            raise serializers.ValidationError({"name": "Period name is required."})
+        if not start_time:
+            raise serializers.ValidationError({"start_time": "Start time is required."})
+        if not end_time:
+            raise serializers.ValidationError({"end_time": "End time is required."})
+
+        # Validate start_time and end_time logic
+        if start_time and end_time and end_time <= start_time:
+            raise serializers.ValidationError({"end_time": "End time must be after start time."})
+        
+        # Duplicate validation within the same school and class
+        query = Period.objects.filter(
+            school=school,
+            class_obj=class_obj,
+            name__iexact=name
+        )
+        if self.instance:
+            query = query.exclude(pk=self.instance.pk)
+            
+        if query.exists():
+            raise serializers.ValidationError(
+                f"Period {name} already assigned to this Class {class_obj.class_name} {class_obj.section}."
+            )
+        
+        return data
+
+    @transaction.atomic
+    def create(self, validated_data):
+        validated_data['school'] = self.context.get('school')
+        validated_data['class_obj'] = self.context.get('class_obj')
+        return super().create(validated_data)
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        # The school and class_obj cannot be changed after creation, so they are not in validated_data
+        return super().update(instance, validated_data)
