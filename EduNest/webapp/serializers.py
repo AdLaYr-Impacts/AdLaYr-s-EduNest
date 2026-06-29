@@ -536,12 +536,11 @@ class SchoolClassSerializer(serializers.ModelSerializer):
 
 class TeacherSummarySerializer(serializers.ModelSerializer):
     full_name = serializers.CharField(source='user.get_full_name', read_only=True)
-    class_teacher_count = serializers.IntegerField(read_only=True)
-    assistant_class_teacher_count = serializers.IntegerField(read_only=True)
+    already_assigned_count = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = SchoolTeacher
-        fields = ['uuid', 'full_name', 'class_teacher_count', 'assistant_class_teacher_count']
+        fields = ['uuid', 'full_name', 'already_assigned_count']
 
 
 class SubjectSerializer(serializers.ModelSerializer):

@@ -5,7 +5,7 @@ from rest_framework.response import Response
 from rest_framework.decorators import action
 from django_filters.rest_framework import DjangoFilterBackend
 
-from django.db.models import Count, Prefetch
+from django.db.models import Count, Prefetch, Q
 from .models import (
     SchoolTeacher, SchoolClass, Subjects, ClassSubjects, SubjectGroup, Students, 
     StudentParentDetails, AttendanceSession, StudentAttendance, Period
@@ -121,8 +121,8 @@ class SchoolClassViewSet(viewsets.ModelViewSet):
 @extend_schema_view(
     list=extend_schema(
         tags=['Teachers'],
-        summary="List all teachers belonging to the school with their class assignment count",
-        description="Returns a list of teachers with counts of classes where they are class teachers or assistant teachers."
+        summary="List all teachers belonging to the school with their subject assignment count for current academic year",
+        description="Returns a list of teachers with count of subjects they are assigned to within the school for the current academic year."
     ),
 )
 class TeacherSummaryViewSet(viewsets.ReadOnlyModelViewSet):
@@ -132,7 +132,7 @@ class TeacherSummaryViewSet(viewsets.ReadOnlyModelViewSet):
     lookup_field = 'uuid'
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['user__first_name', 'user__last_name', 'teacher_code']
-    ordering_fields = ['created_at', 'class_teacher_count', 'assistant_class_teacher_count']
+    ordering_fields = ['created_at', 'already_assigned_count']
     ordering = ['-created_at']
 
     def get_queryset(self):
@@ -145,8 +145,15 @@ class TeacherSummaryViewSet(viewsets.ReadOnlyModelViewSet):
         ).select_related(
             'user'
         ).annotate(
-            class_teacher_count=Count('classes_as_class_teacher', distinct=True),
-            assistant_class_teacher_count=Count('classes_as_assistant_teacher', distinct=True)
+            already_assigned_count=Count(
+                'subject_teacher',
+                filter=Q(
+                    subject_teacher__subject_class__school=school,
+                    subject_teacher__subject_class__academic_year=school.academic_year,
+                    subject_teacher__is_active=True
+                ),
+                distinct=True
+            )
         )
 
 
