@@ -1435,6 +1435,7 @@ class StudentAttendanceSerializer(serializers.ModelSerializer):
             'student_name', 'student_code', 'roll_number', 'attendance_date'
         ]
 
+    @extend_schema_field(serializers.CharField(allow_null=True))
     def get_roll_number(self, obj):
         if obj.student:
             academic = obj.student.student_academic_details.first()

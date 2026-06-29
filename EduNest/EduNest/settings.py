@@ -190,5 +190,6 @@ SPECTACULAR_SETTINGS = {
     },
     'ENUM_NAME_OVERRIDES': {
         'MediumEnum': 'common.choices.ClassMedium',
+        'CountryEnum': 'django_countries.fields.countries',
     },
-    }
+}
