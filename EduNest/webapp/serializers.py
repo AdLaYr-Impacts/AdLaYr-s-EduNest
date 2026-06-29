@@ -399,7 +399,7 @@ class SchoolClassSerializer(serializers.ModelSerializer):
             'smart_class_enabled', 'class_color_code', 'class_teacher_uuid',
             'assistant_teachers_uuids', 'class_teacher', 'assistant_teacher'
         ]
-        read_only_fields = ['uuid']
+        read_only_fields = ['uuid', 'academic_year']
 
     def validate_class_name(self, value):
         if value and not value.strip():
@@ -420,7 +420,7 @@ class SchoolClassSerializer(serializers.ModelSerializer):
         school = self.context.get('school')
         class_name = data.get('class_name', self.instance.class_name if self.instance else None)
         section = data.get('section', self.instance.section if self.instance else None)
-        academic_year = data.get('academic_year', self.instance.academic_year if self.instance else None)
+        academic_year = school.academic_year if school else None
         
         if not class_name:
             raise serializers.ValidationError({"class_name": "This field is required."})
@@ -469,6 +469,7 @@ class SchoolClassSerializer(serializers.ModelSerializer):
 
         school_class = SchoolClass.objects.create(
             school=school,
+            academic_year=school.academic_year,
             **validated_data
         )
 
@@ -492,6 +493,8 @@ class SchoolClassSerializer(serializers.ModelSerializer):
         old_assistant_teachers = set(instance.assistant_teacher.all())
 
         assistant_teachers = validated_data.pop('assistant_teacher', None)
+        school = self.context.get('school')
+        validated_data['academic_year'] = school.academic_year if school else instance.academic_year
 
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
