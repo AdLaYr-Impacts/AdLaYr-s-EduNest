@@ -1372,6 +1372,16 @@ class SubjectSupportSerializer(serializers.ModelSerializer):
         fields = ['subject_uuid', 'subject_name']
 
 
+class ClassSubjectSupportSerializer(serializers.ModelSerializer):
+    class_subject_uuid = serializers.UUIDField(source='uuid', read_only=True)
+    subject_uuid = serializers.UUIDField(source='subject.uuid', read_only=True)
+    subject_name = serializers.CharField(source='subject.name', read_only=True)
+
+    class Meta:
+        model = ClassSubjects
+        fields = ['class_subject_uuid', 'subject_uuid', 'subject_name', 'is_optional']
+
+
 class StudentAttendanceListSerializer(serializers.ListSerializer):
     @transaction.atomic
     def create(self, validated_data):

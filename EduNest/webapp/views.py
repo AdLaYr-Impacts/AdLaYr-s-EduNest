@@ -17,7 +17,7 @@ from .serializers import (
     SubjectSerializer, ClassListSerializer, SubjectListSerializer,
     ClassSubjectSerializer, ClassSubjectGroupSerializer, SubjectGroupSerializer,
     StudentSerializer, SchoolClassSupportSerializer, StudentSupportSerializer, 
-    SubjectSupportSerializer, StudentAttendanceSerializer, PeriodSerializer,
+    ClassSubjectSupportSerializer, StudentAttendanceSerializer, PeriodSerializer,
     ClassTimetableSerializer,
 )
 from permissions.permissions import IsSchoolAdmin, IsSchoolAdminOrClassTeacher
@@ -489,7 +489,7 @@ class StudentSupportView(viewsets.ViewSet):
     @extend_schema(
         tags=['Students'],
         summary="List all subjects based on class uuid",
-        responses={200: SubjectSupportSerializer(many=True)}
+        responses={200: ClassSubjectSupportSerializer(many=True)}
     )
     def class_subjects(self, request, class_uuid=None, *args, **kwargs):
         school = get_school(self)
@@ -501,15 +501,13 @@ class StudentSupportView(viewsets.ViewSet):
             is_active=True
         ).select_related('subject').order_by('sort_order', 'subject__name')
 
-        subjects = [cs.subject for cs in queryset if cs.subject]
-        
         paginator = self.pagination_class()
-        page = paginator.paginate_queryset(subjects, request, view=self)
+        page = paginator.paginate_queryset(queryset, request, view=self)
         if page is not None:
-            serializer = SubjectSupportSerializer(page, many=True)
+            serializer = ClassSubjectSupportSerializer(page, many=True)
             return paginator.get_paginated_response(serializer.data)
 
-        serializer = SubjectSupportSerializer(subjects, many=True)
+        serializer = ClassSubjectSupportSerializer(queryset, many=True)
         return Response(serializer.data)
 
 
