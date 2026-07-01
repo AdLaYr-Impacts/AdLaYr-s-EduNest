@@ -1,5 +1,6 @@
 from django.db import transaction
 from django.shortcuts import get_object_or_404
+from django.http import Http404
 from rest_framework import viewsets, status, filters
 from rest_framework.response import Response
 from rest_framework.decorators import action
@@ -8,14 +9,16 @@ from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import Count, Prefetch, Q
 from .models import (
     SchoolTeacher, SchoolClass, Subjects, ClassSubjects, SubjectGroup, Students, 
-    StudentParentDetails, AttendanceSession, StudentAttendance, Period
+    StudentParentDetails, AttendanceSession, StudentAttendance, Period,
+    ClassTimetable, ClassTimetableEntry,
 )
 from .serializers import (
     TeacherSerializer, SchoolClassSerializer, TeacherSummarySerializer, 
     SubjectSerializer, ClassListSerializer, SubjectListSerializer,
     ClassSubjectSerializer, ClassSubjectGroupSerializer, SubjectGroupSerializer,
     StudentSerializer, SchoolClassSupportSerializer, StudentSupportSerializer, 
-    SubjectSupportSerializer, StudentAttendanceSerializer, PeriodSerializer
+    SubjectSupportSerializer, StudentAttendanceSerializer, PeriodSerializer,
+    ClassTimetableSerializer,
 )
 from permissions.permissions import IsSchoolAdmin, IsSchoolAdminOrClassTeacher
 from common.pagination import StandardPagination
@@ -649,3 +652,101 @@ class PeriodViewSet(viewsets.ModelViewSet):
 
     def perform_update(self, serializer):
         serializer.save()
+
+
+@extend_schema_view(
+    list=extend_schema(tags=['Class Timetable']),
+    create=extend_schema(tags=['Class Timetable']),
+    retrieve=extend_schema(tags=['Class Timetable']),
+    update=extend_schema(tags=['Class Timetable']),
+    partial_update=extend_schema(tags=['Class Timetable']),
+    destroy=extend_schema(tags=['Class Timetable']),
+)
+class ClassTimetableViewSet(viewsets.ModelViewSet):
+    serializer_class = ClassTimetableSerializer
+    permission_classes = [IsSchoolAdmin]
+    pagination_class = StandardPagination
+    lookup_field = 'uuid'
+    lookup_url_kwarg = 'uuid'
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['class_obj__uuid', 'class_obj__academic_year', 'is_published', 'is_save_as_draft']
+    search_fields = ['class_obj__class_name', 'class_obj__section']
+    ordering_fields = ['created_at', 'class_obj__class_name', 'class_obj__academic_year']
+    ordering = ['-created_at']
+
+    def get_class_object(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return None
+
+        school = get_school(self)
+        class_uuid = self.kwargs.get('class_uuid')
+        if not class_uuid:
+            return None
+
+        return get_object_or_404(
+            SchoolClass,
+            uuid=class_uuid,
+            school=school,
+            is_active=True,
+        )
+
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return ClassTimetable.objects.none()
+
+        school = get_school(self)
+        entry_queryset = ClassTimetableEntry.objects.select_related(
+            'period',
+            'subject',
+            'subject__subject',
+            'subject__subject_class',
+            'teacher',
+            'teacher__user',
+        ).filter(is_active=True).order_by('day', 'period__order', 'period__start_time')
+
+        return ClassTimetable.objects.filter(
+            school=school,
+            class_obj=self.get_class_object(),
+            class_obj__school=school,
+            is_active=True,
+        ).select_related(
+            'school',
+            'class_obj',
+            'class_obj__school',
+        ).prefetch_related(
+            Prefetch('time_table', queryset=entry_queryset)
+        )
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context['school'] = get_school(self)
+        if self.action != 'list':
+            context['class_obj'] = self.get_class_object()
+        return context
+
+    def get_object(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return None
+
+        school = get_school(self)
+        class_obj = self.get_class_object()
+        timetable_uuid = self.kwargs.get('uuid')
+        obj = self.get_queryset().filter(
+            school=school,
+            class_obj=class_obj,
+            uuid=timetable_uuid,
+        ).first()
+
+        if not obj:
+            raise Http404
+
+        return obj
+
+    def update(self, request, *args, **kwargs):
+        kwargs['partial'] = True
+        return super().update(request, *args, **kwargs)
+
+    def perform_destroy(self, instance):
+        instance.is_active = False
+        instance.save(update_fields=['is_active', 'updated_at'])
+        instance.time_table.update(is_active=False)

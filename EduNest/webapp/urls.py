@@ -2,7 +2,8 @@ from django.urls import path
 from .views import (
     TeacherViewSet, SchoolClassViewSet, TeacherSummaryViewSet, 
     SubjectViewSet, SubjectListViews, ClassSubjectViewSet, SubjectGroupViewSet,
-    StudentViewSet, StudentSupportView, StudentAttendanceViewSet, PeriodViewSet
+    StudentViewSet, StudentSupportView, StudentAttendanceViewSet, PeriodViewSet,
+    ClassTimetableViewSet,
 )
 
 urlpatterns = [
@@ -101,6 +102,18 @@ urlpatterns = [
         'post': 'create'
     })),
     path('classes/<uuid:class_uuid>/periods/<uuid:uuid>/', PeriodViewSet.as_view({
+        'get': 'retrieve',
+        'put': 'update',
+        'patch': 'partial_update',
+        'delete': 'destroy'
+    })),
+    path('classes/<uuid:class_uuid>/class_timetable/', ClassTimetableViewSet.as_view({
+        'get': 'list',
+        'post': 'create',
+        'put': 'update',
+        'patch': 'partial_update'
+    })),
+    path('classes/<uuid:class_uuid>/class_timetable/<uuid:uuid>/', ClassTimetableViewSet.as_view({
         'get': 'retrieve',
         'put': 'update',
         'patch': 'partial_update',
