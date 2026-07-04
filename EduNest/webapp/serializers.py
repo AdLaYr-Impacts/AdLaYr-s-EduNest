@@ -1695,6 +1695,35 @@ class PeriodSerializer(serializers.ModelSerializer):
 
 
 class ClassTimetableEntryListSerializer(serializers.ListSerializer):
+    def _get_timetable_instance(self):
+        timetable = self.context.get('timetable')
+        if isinstance(timetable, ClassTimetable):
+            return timetable
+
+        parent = getattr(self, 'parent', None)
+        while parent is not None:
+            parent_instance = getattr(parent, 'instance', None)
+            if isinstance(parent_instance, ClassTimetable):
+                return parent_instance
+            parent = getattr(parent, 'parent', None)
+
+        return None
+
+    def _get_existing_instances(self):
+        if isinstance(self.instance, (list, tuple)):
+            return list(self.instance)
+
+        if self.instance is None:
+            timetable = self._get_timetable_instance()
+            if timetable is not None:
+                return list(timetable.time_table.filter(is_active=True))
+            return []
+
+        if hasattr(self.instance, "all"):
+            return list(self.instance.all())
+
+        return [self.instance]
+
     def validate(self, attrs):
         school = self.context.get('school')
         class_obj = self.context.get('class_obj')
@@ -1702,9 +1731,9 @@ class ClassTimetableEntryListSerializer(serializers.ListSerializer):
         if not school or not class_obj:
             raise serializers.ValidationError('School and class context are required for class timetable entries.')
 
-        existing_instances = {}
-        if isinstance(self.instance, (list, tuple)):
-            existing_instances = {str(entry.uuid): entry for entry in self.instance}
+        existing_instances = {
+            str(entry.uuid): entry for entry in self._get_existing_instances()
+        }
 
         request_uuids = {str(item.get('uuid')) for item in attrs if item.get('uuid')}
 
@@ -1731,11 +1760,10 @@ class ClassTimetableEntryListSerializer(serializers.ListSerializer):
             entry_uuid = item.get('uuid')
             existing_instance = existing_instances.get(str(entry_uuid)) if entry_uuid else None
 
-            if entry_uuid and not existing_instance and not self.instance:
-                raise serializers.ValidationError({'id': f'Entry {entry_uuid} does not belong to this class.'})
-
-            if not self.instance and entry_uuid:
-                raise serializers.ValidationError({'id': 'UUID cannot be provided while creating class timetable entries.'})
+            if entry_uuid and not existing_instance:
+                if self._get_timetable_instance() is None:
+                    raise serializers.ValidationError({'id': 'UUID cannot be provided while creating class timetable entries.'})
+                raise serializers.ValidationError({'id': f'Entry {entry_uuid} does not belong to this class timetable.'})
 
             merged_entry = {
                 'uuid': str(existing_instance.uuid) if existing_instance else (str(entry_uuid) if entry_uuid else None),
@@ -1866,11 +1894,44 @@ class ClassTimetableEntrySerializer(serializers.ModelSerializer):
             'period_details', 'subject_details', 'teacher_details',
         ]
 
+    def _get_timetable_instance(self):
+        timetable = self.context.get('timetable')
+        if isinstance(timetable, ClassTimetable):
+            return timetable
+
+        parent = getattr(self, 'parent', None)
+        while parent is not None:
+            parent_instance = getattr(parent, 'instance', None)
+            if isinstance(parent_instance, ClassTimetable):
+                return parent_instance
+            parent = getattr(parent, 'parent', None)
+
+        return None
+
+    def _get_current_instance(self, data):
+        if isinstance(self.instance, ClassTimetableEntry):
+            return self.instance
+
+        timetable = self._get_timetable_instance()
+        entry_uuid = data.get('uuid')
+
+        if timetable and entry_uuid:
+            return timetable.time_table.filter(uuid=entry_uuid, is_active=True).first()
+
+        return None
+
     def validate(self, data):
         school = self.context.get('school')
         class_obj = self.context.get('class_obj')
 
-        current_instance = self.instance if isinstance(self.instance, ClassTimetableEntry) else None
+        current_instance = self._get_current_instance(data)
+        entry_uuid = data.get('uuid')
+        timetable = self._get_timetable_instance()
+
+        if entry_uuid and timetable and current_instance is None:
+            raise serializers.ValidationError({
+                'id': f'Entry {entry_uuid} does not belong to this class timetable.'
+            })
 
         period = data.get('period', _entry_value(current_instance, 'period'))
         subject = data.get('subject', _entry_value(current_instance, 'subject'))
