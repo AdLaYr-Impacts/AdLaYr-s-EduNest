@@ -1729,7 +1729,7 @@ class ClassTimetableEntryListSerializer(serializers.ListSerializer):
         class_obj = self.context.get('class_obj')
 
         if not school or not class_obj:
-            raise serializers.ValidationError('School and class context are required for class timetable entries.')
+            raise serializers.ValidationError('School and class are required for class timetable entries.')
 
         existing_instances = {
             str(entry.uuid): entry for entry in self._get_existing_instances()
@@ -1811,7 +1811,7 @@ class ClassTimetableEntryListSerializer(serializers.ListSerializer):
                     conflict_class_name = conflict.timetable.class_obj.class_name if hasattr(conflict, 'timetable') else class_obj.class_name
                     raise serializers.ValidationError({
                         'entries': (
-                            f"Teacher {merged_entry['teacher'].user.get_full_name()} already assigned to this Class "
+                            f"Teacher {merged_entry['teacher'].user.get_full_name()} already assigned to the Class "
                             f"{conflict_class_name} at the same duration"
                         )
                     })
@@ -1941,7 +1941,7 @@ class ClassTimetableEntrySerializer(serializers.ModelSerializer):
         errors = {}
 
         if not school or not class_obj:
-            raise serializers.ValidationError("School and class context are required for timetable entries.")
+            raise serializers.ValidationError("School and class are required for timetable entries.")
 
         if period:
             if period.school != school:
@@ -2008,7 +2008,7 @@ class ClassTimetableEntrySerializer(serializers.ModelSerializer):
 
             if conflict:
                 errors['teacher_uuid'] = (
-                    f"Teacher {teacher.user.get_full_name()} already assigned to this Class "
+                    f"Teacher {teacher.user.get_full_name()} already assigned to the Class "
                     f"{conflict.timetable.class_obj.class_name} at the same duration"
                 )
 
@@ -2039,7 +2039,7 @@ class ClassTimetableSerializer(serializers.ModelSerializer):
         entries = data.get('time_table')
 
         if not school or not class_obj:
-            raise serializers.ValidationError('School and class context are required for class timetables.')
+            raise serializers.ValidationError('School and class are required for class timetables.')
 
         published_provided = 'is_published' in data
         draft_provided = 'is_save_as_draft' in data
@@ -2113,7 +2113,7 @@ class ClassTimetableSerializer(serializers.ModelSerializer):
                     if conflict:
                         raise serializers.ValidationError({
                             'entries': (
-                                f"Teacher {teacher.user.get_full_name()} already assigned to this Class "
+                                f"Teacher {teacher.user.get_full_name()} already assigned to the Class "
                                 f"{conflict.timetable.class_obj.class_name} at the same duration"
                             )
                         })
