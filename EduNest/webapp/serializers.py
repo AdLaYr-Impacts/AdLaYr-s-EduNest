@@ -1809,7 +1809,7 @@ class ClassTimetableEntryListSerializer(serializers.ListSerializer):
                             break
 
                 if conflict:
-                    conflict_class_name = conflict.timetable.class_obj.class_name if hasattr(conflict, 'timetable') else class_obj.class_name
+                    conflict_class_name = f"{conflict.timetable.class_obj.class_name}{conflict.timetable.class_obj.section}" if hasattr(conflict, 'timetable') else f"{class_obj.class_name}{class_obj.section}"
                     raise serializers.ValidationError({
                         'entries': (
                             f"Teacher {merged_entry['teacher'].user.get_full_name()} already assigned to the Class "
@@ -2010,7 +2010,7 @@ class ClassTimetableEntrySerializer(serializers.ModelSerializer):
             if conflict:
                 errors['teacher_uuid'] = (
                     f"Teacher {teacher.user.get_full_name()} already assigned to the Class "
-                    f"{conflict.timetable.class_obj.class_name} at the same duration"
+                    f"{conflict.timetable.class_obj.class_name}{conflict.timetable.class_obj.section} at the same duration"
                 )
 
         if errors:
@@ -2038,9 +2038,7 @@ class ClassTimetableSerializer(serializers.ModelSerializer):
         if not subject or not teacher:
             return
 
-        if subject.teacher_id != teacher.id:
-            subject.teacher = teacher
-            subject.save(update_fields=['teacher', 'updated_at'])
+        subject.teacher.add(teacher)
 
     def _sync_entries_class_subject_teachers(self, entries):
         for entry in entries:
@@ -2090,7 +2088,6 @@ class ClassTimetableSerializer(serializers.ModelSerializer):
 
         if entries is not None:
             seen_slots = set()
-            subject_teacher_map = {}
             timetable_id = self.instance.id if self.instance else None
             academic_year = class_obj.academic_year
 
@@ -2100,17 +2097,6 @@ class ClassTimetableSerializer(serializers.ModelSerializer):
                 teacher = entry.get('teacher')
                 subject = entry.get('subject')
                 entry_uuid = entry.get('uuid')
-
-                if subject and teacher:
-                    teacher_id = subject_teacher_map.get(subject.id)
-                    if teacher_id is None:
-                        subject_teacher_map[subject.id] = teacher.id
-                    elif teacher_id != teacher.id:
-                        raise serializers.ValidationError({
-                            'entries': (
-                                f'Subject {subject.subject.name} cannot be assigned to multiple teachers in the same timetable request.'
-                            )
-                        })
 
                 slot_key = (day, period.id)
                 if slot_key in seen_slots:
@@ -2140,7 +2126,7 @@ class ClassTimetableSerializer(serializers.ModelSerializer):
                         raise serializers.ValidationError({
                             'entries': (
                                 f"Teacher {teacher.user.get_full_name()} already assigned to the Class "
-                                f"{conflict.timetable.class_obj.class_name} at the same duration"
+                                f"{conflict.timetable.class_obj.class_name}{conflict.timetable.class_obj.section} at the same duration"
                             )
                         })
 

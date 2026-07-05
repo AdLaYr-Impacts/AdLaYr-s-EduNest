@@ -247,7 +247,7 @@ class Subjects(BaseModel):
 class ClassSubjects(BaseModel):
     subject = models.ForeignKey(Subjects, null=True, blank=True, on_delete=models.CASCADE, related_name="class_subjects")
     subject_class = models.ForeignKey(SchoolClass, null=True, blank=True, on_delete=models.CASCADE, related_name="class_as_subject_class")
-    teacher = models.ForeignKey(SchoolTeacher, null=True, blank=True, on_delete=models.SET_NULL, related_name="subject_teacher")
+    teacher = models.ManyToManyField(SchoolTeacher, blank=True, related_name="subject_teacher")
     is_optional = models.BooleanField(default=False)
     is_language = models.BooleanField(default=False)
     max_marks = models.FloatField(default=100)

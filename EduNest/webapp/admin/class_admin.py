@@ -19,8 +19,8 @@ class SubjectsAdmin(admin.ModelAdmin):
 
 @admin.register(ClassSubjects, site=admin_site)
 class ClassSubjectsAdmin(admin.ModelAdmin):
-    list_display = ('id', 'subject', 'subject_class', 'teacher', 'max_marks', 'pass_marks', 'is_active')
-    list_filter = ('subject_class__school', 'subject_class', 'teacher', 'is_active')
+    list_display = ('id', 'subject', 'subject_class', 'max_marks', 'pass_marks', 'is_active')
+    list_filter = ('subject_class__school', 'subject_class', 'is_active')
     search_fields = ('subject__name', 'subject_class__class_name', 'teacher__user__first_name')
 
 @admin.register(SubjectGroup, site=admin_site)
