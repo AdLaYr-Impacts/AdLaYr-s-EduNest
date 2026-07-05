@@ -43,36 +43,6 @@ from django_countries.serializer_fields import CountryField
 from common.helper import generate_user_code
 
 
-def _times_overlap(start_a, end_a, start_b, end_b):
-    return start_a < end_b and start_b < end_a
-
-
-def _entry_value(entry, key):
-    if isinstance(entry, dict):
-        return entry.get(key)
-    return getattr(entry, key, None)
-
-
-def _entry_conflicts(entry_a, entry_b):
-    teacher_a = _entry_value(entry_a, 'teacher')
-    teacher_b = _entry_value(entry_b, 'teacher')
-    day_a = _entry_value(entry_a, 'day')
-    day_b = _entry_value(entry_b, 'day')
-    period_a = _entry_value(entry_a, 'period')
-    period_b = _entry_value(entry_b, 'period')
-
-    if not teacher_a or not teacher_b or not day_a or not day_b or not period_a or not period_b:
-        return False
-
-    if teacher_a.id != teacher_b.id or day_a != day_b:
-        return False
-
-    if not period_a.start_time or not period_a.end_time or not period_b.start_time or not period_b.end_time:
-        return False
-
-    return _times_overlap(period_a.start_time, period_a.end_time, period_b.start_time, period_b.end_time)
-
-
 # School Teacher
 class TeacherEducationSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(source='uuid', read_only=False, required=False)
@@ -1692,6 +1662,37 @@ class PeriodSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         # The school and class_obj cannot be changed after creation, so they are not in validated_data
         return super().update(instance, validated_data)
+
+
+# DEPENDENCIES - CLASS TIMETABLE ENTRIES
+def _times_overlap(start_a, end_a, start_b, end_b):
+    return start_a < end_b and start_b < end_a
+
+
+def _entry_value(entry, key):
+    if isinstance(entry, dict):
+        return entry.get(key)
+    return getattr(entry, key, None)
+
+
+def _entry_conflicts(entry_a, entry_b):
+    teacher_a = _entry_value(entry_a, 'teacher')
+    teacher_b = _entry_value(entry_b, 'teacher')
+    day_a = _entry_value(entry_a, 'day')
+    day_b = _entry_value(entry_b, 'day')
+    period_a = _entry_value(entry_a, 'period')
+    period_b = _entry_value(entry_b, 'period')
+
+    if not teacher_a or not teacher_b or not day_a or not day_b or not period_a or not period_b:
+        return False
+
+    if teacher_a.id != teacher_b.id or day_a != day_b:
+        return False
+
+    if not period_a.start_time or not period_a.end_time or not period_b.start_time or not period_b.end_time:
+        return False
+
+    return _times_overlap(period_a.start_time, period_a.end_time, period_b.start_time, period_b.end_time)
 
 
 class ClassTimetableEntryListSerializer(serializers.ListSerializer):
