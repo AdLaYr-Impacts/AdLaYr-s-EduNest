@@ -2033,6 +2033,18 @@ class ClassTimetableSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'is_active']
 
+    def _sync_class_subject_teacher(self, subject, teacher):
+        if not subject or not teacher:
+            return
+
+        if subject.teacher_id != teacher.id:
+            subject.teacher = teacher
+            subject.save(update_fields=['teacher', 'updated_at'])
+
+    def _sync_entries_class_subject_teachers(self, entries):
+        for entry in entries:
+            self._sync_class_subject_teacher(entry.get('subject'), entry.get('teacher'))
+
     def validate(self, data):
         school = self.context.get('school')
         class_obj = self.context.get('class_obj')
@@ -2077,6 +2089,7 @@ class ClassTimetableSerializer(serializers.ModelSerializer):
 
         if entries is not None:
             seen_slots = set()
+            subject_teacher_map = {}
             timetable_id = self.instance.id if self.instance else None
             academic_year = class_obj.academic_year
 
@@ -2084,7 +2097,19 @@ class ClassTimetableSerializer(serializers.ModelSerializer):
                 day = entry.get('day')
                 period = entry.get('period')
                 teacher = entry.get('teacher')
+                subject = entry.get('subject')
                 entry_uuid = entry.get('uuid')
+
+                if subject and teacher:
+                    teacher_id = subject_teacher_map.get(subject.id)
+                    if teacher_id is None:
+                        subject_teacher_map[subject.id] = teacher.id
+                    elif teacher_id != teacher.id:
+                        raise serializers.ValidationError({
+                            'entries': (
+                                f'Subject {subject.subject.name} cannot be assigned to multiple teachers in the same timetable request.'
+                            )
+                        })
 
                 slot_key = (day, period.id)
                 if slot_key in seen_slots:
@@ -2135,6 +2160,8 @@ class ClassTimetableSerializer(serializers.ModelSerializer):
         for entry in entries:
             ClassTimetableEntry.objects.create(timetable=timetable, **entry)
 
+        self._sync_entries_class_subject_teachers(entries)
+
         return timetable
 
     @transaction.atomic
@@ -2166,6 +2193,8 @@ class ClassTimetableSerializer(serializers.ModelSerializer):
                 else:
                     created_entry = ClassTimetableEntry.objects.create(timetable=instance, **entry_data)
                     incoming_uuids.add(str(created_entry.uuid))
+
+            self._sync_entries_class_subject_teachers(entries)
 
             ClassTimetableEntry.objects.filter(timetable=instance).exclude(uuid__in=incoming_uuids).delete()
 
