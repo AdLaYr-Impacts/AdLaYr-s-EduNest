@@ -294,7 +294,9 @@ class ClassSubjectViewSet(viewsets.ModelViewSet):
         return ClassSubjects.objects.filter(
             subject_class__school=school
         ).select_related(
-            'subject', 'subject_class', 'teacher', 'teacher__user'
+            'subject', 'subject_class'
+        ).prefetch_related(
+            'teacher'
         )
 
     def get_serializer_context(self):
@@ -740,6 +742,11 @@ class ClassTimetableViewSet(viewsets.ModelViewSet):
 
         return obj
 
+    @transaction.atomic
+    def create(self, request, *args, **kwargs):
+        return super().create(request, *args, **kwargs)
+
+    @transaction.atomic
     def update(self, request, *args, **kwargs):
         kwargs['partial'] = True
         return super().update(request, *args, **kwargs)

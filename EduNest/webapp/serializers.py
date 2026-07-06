@@ -658,6 +658,46 @@ class ClassSubjectGroupSerializer(serializers.ModelSerializer):
             subjects = [cs.subject for cs in class_subjects]
         return SubjectListSerializer(subjects, many=True).data
 
+class TeacherUUIDField(serializers.Field):
+    def __init__(self, **kwargs):
+        self.queryset = kwargs.pop('queryset')
+        super().__init__(**kwargs)
+
+    def to_internal_value(self, data):
+        if data in (None, ''):
+            return []
+
+        if not isinstance(data, (list, tuple)):
+            data = [data]
+
+        teachers = []
+        seen = set()
+
+        for teacher_uuid in data:
+            try:
+                teacher = self.queryset.get(uuid=teacher_uuid)
+            except self.queryset.model.DoesNotExist:
+                raise serializers.ValidationError({
+                    'teacher_uuid': f'Teacher with UUID {teacher_uuid} does not exist.'
+                })
+
+            if str(teacher.uuid) not in seen:
+                seen.add(str(teacher.uuid))
+                teachers.append(teacher)
+
+        return teachers
+
+    def to_representation(self, value):
+        if value is None:
+            return []
+
+        if hasattr(value, 'all'):
+            return [str(item.uuid) for item in value.all() if item]
+
+        if isinstance(value, (list, tuple, set)):
+            return [str(item.uuid) for item in value if item]
+
+        return [str(getattr(value, 'uuid', value))]
 
 class ClassSubjectSerializer(serializers.ModelSerializer):
     subject_uuid = serializers.SlugRelatedField(
@@ -670,17 +710,15 @@ class ClassSubjectSerializer(serializers.ModelSerializer):
         queryset=SchoolClass.objects.all(),
         source='subject_class'
     )
-    teacher_uuid = serializers.SlugRelatedField(
-        slug_field='uuid',
+    teacher_uuid = TeacherUUIDField(
         queryset=SchoolTeacher.objects.all(),
         source='teacher',
-        required=False,
-        allow_null=True
+        required=False
     )
     
     subject_details = SubjectListSerializer(source='subject', read_only=True)
     class_details = ClassListSerializer(source='subject_class', read_only=True)
-    teacher_details = TeacherMiniSerializer(source='teacher', read_only=True)
+    teacher_details = TeacherMiniSerializer(source='teacher', many=True, read_only=True)
     
     class Meta:
         model = ClassSubjects
@@ -695,7 +733,7 @@ class ClassSubjectSerializer(serializers.ModelSerializer):
         school = self.context.get('school')
         subject = data.get('subject')
         subject_class = data.get('subject_class')
-        teacher = data.get('teacher')
+        teachers = data.get('teacher') or []
 
         # School validations
         if subject and subject.school != school:
@@ -704,7 +742,7 @@ class ClassSubjectSerializer(serializers.ModelSerializer):
         if subject_class and subject_class.school != school:
             raise serializers.ValidationError({"class_uuid": "Class does not belong to this school."})
             
-        if teacher:
+        for teacher in teachers:
             if teacher.school != school:
                 raise serializers.ValidationError({"teacher_uuid": "Teacher does not belong to this school."})
             if teacher.user.is_deleted:
@@ -740,11 +778,19 @@ class ClassSubjectSerializer(serializers.ModelSerializer):
 
     @transaction.atomic
     def create(self, validated_data):
-        return super().create(validated_data)
+        teachers = validated_data.pop('teacher', [])
+        instance = super().create(validated_data)
+        if teachers:
+            instance.teacher.add(*teachers)
+        return instance
 
     @transaction.atomic
     def update(self, instance, validated_data):
-        return super().update(instance, validated_data)
+        teachers = validated_data.pop('teacher', None)
+        instance = super().update(instance, validated_data)
+        if teachers is not None:
+            instance.teacher.set(teachers)
+        return instance
 
 
 class SubjectGroupSerializer(serializers.ModelSerializer):
