@@ -2086,9 +2086,18 @@ class ClassTimetableSerializer(serializers.ModelSerializer):
 
         subject.teacher.add(teacher)
 
-    def _sync_entries_class_subject_teachers(self, entries):
+    def _sync_timetable_class_subject_teachers(self, timetable):
+        subjects = {}
+        entries = timetable.time_table.select_related('subject', 'teacher').filter(is_active=True)
+
         for entry in entries:
-            self._sync_class_subject_teacher(entry.get('subject'), entry.get('teacher'))
+            if not entry.subject or not entry.teacher:
+                continue
+            subjects.setdefault(entry.subject_id, {"subject": entry.subject, "teachers": set()})
+            subjects[entry.subject_id]["teachers"].add(entry.teacher)
+
+        for item in subjects.values():
+            item["subject"].teacher.set(list(item["teachers"]))
 
     def validate(self, data):
         school = self.context.get('school')
@@ -2193,7 +2202,7 @@ class ClassTimetableSerializer(serializers.ModelSerializer):
         for entry in entries:
             ClassTimetableEntry.objects.create(timetable=timetable, **entry)
 
-        self._sync_entries_class_subject_teachers(entries)
+        self._sync_timetable_class_subject_teachers(timetable)
 
         return timetable
 
@@ -2227,8 +2236,8 @@ class ClassTimetableSerializer(serializers.ModelSerializer):
                     created_entry = ClassTimetableEntry.objects.create(timetable=instance, **entry_data)
                     incoming_uuids.add(str(created_entry.uuid))
 
-            self._sync_entries_class_subject_teachers(entries)
-
             ClassTimetableEntry.objects.filter(timetable=instance).exclude(uuid__in=incoming_uuids).delete()
+
+            self._sync_timetable_class_subject_teachers(instance)
 
         return instance
