@@ -1,21 +1,24 @@
 from django.db import transaction
 from django.shortcuts import get_object_or_404
+from django.http import Http404
 from rest_framework import viewsets, status, filters
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from django_filters.rest_framework import DjangoFilterBackend
 
-from django.db.models import Count, Prefetch
+from django.db.models import Count, Prefetch, Q
 from .models import (
     SchoolTeacher, SchoolClass, Subjects, ClassSubjects, SubjectGroup, Students, 
-    StudentParentDetails, AttendanceSession, StudentAttendance, Period
+    StudentParentDetails, AttendanceSession, StudentAttendance, Period,
+    ClassTimetable, ClassTimetableEntry,
 )
 from .serializers import (
     TeacherSerializer, SchoolClassSerializer, TeacherSummarySerializer, 
     SubjectSerializer, ClassListSerializer, SubjectListSerializer,
     ClassSubjectSerializer, ClassSubjectGroupSerializer, SubjectGroupSerializer,
     StudentSerializer, SchoolClassSupportSerializer, StudentSupportSerializer, 
-    SubjectSupportSerializer, StudentAttendanceSerializer, PeriodSerializer
+    ClassSubjectSupportSerializer, StudentAttendanceSerializer, PeriodSerializer,
+    ClassTimetableSerializer,
 )
 from permissions.permissions import IsSchoolAdmin, IsSchoolAdminOrClassTeacher
 from common.pagination import StandardPagination
@@ -121,8 +124,8 @@ class SchoolClassViewSet(viewsets.ModelViewSet):
 @extend_schema_view(
     list=extend_schema(
         tags=['Teachers'],
-        summary="List all teachers belonging to the school with their class assignment count",
-        description="Returns a list of teachers with counts of classes where they are class teachers or assistant teachers."
+        summary="List all teachers belonging to the school with their subject assignment count for current academic year",
+        description="Returns a list of teachers with count of subjects they are assigned to within the school for the current academic year."
     ),
 )
 class TeacherSummaryViewSet(viewsets.ReadOnlyModelViewSet):
@@ -132,7 +135,7 @@ class TeacherSummaryViewSet(viewsets.ReadOnlyModelViewSet):
     lookup_field = 'uuid'
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['user__first_name', 'user__last_name', 'teacher_code']
-    ordering_fields = ['created_at', 'class_teacher_count', 'assistant_class_teacher_count']
+    ordering_fields = ['created_at', 'already_assigned_count']
     ordering = ['-created_at']
 
     def get_queryset(self):
@@ -145,8 +148,15 @@ class TeacherSummaryViewSet(viewsets.ReadOnlyModelViewSet):
         ).select_related(
             'user'
         ).annotate(
-            class_teacher_count=Count('classes_as_class_teacher', distinct=True),
-            assistant_class_teacher_count=Count('classes_as_assistant_teacher', distinct=True)
+            already_assigned_count=Count(
+                'subject_teacher',
+                filter=Q(
+                    subject_teacher__subject_class__school=school,
+                    subject_teacher__subject_class__academic_year=school.academic_year,
+                    subject_teacher__is_active=True
+                ),
+                distinct=True
+            )
         )
 
 
@@ -284,7 +294,9 @@ class ClassSubjectViewSet(viewsets.ModelViewSet):
         return ClassSubjects.objects.filter(
             subject_class__school=school
         ).select_related(
-            'subject', 'subject_class', 'teacher', 'teacher__user'
+            'subject', 'subject_class'
+        ).prefetch_related(
+            'teacher'
         )
 
     def get_serializer_context(self):
@@ -479,7 +491,7 @@ class StudentSupportView(viewsets.ViewSet):
     @extend_schema(
         tags=['Students'],
         summary="List all subjects based on class uuid",
-        responses={200: SubjectSupportSerializer(many=True)}
+        responses={200: ClassSubjectSupportSerializer(many=True)}
     )
     def class_subjects(self, request, class_uuid=None, *args, **kwargs):
         school = get_school(self)
@@ -491,15 +503,13 @@ class StudentSupportView(viewsets.ViewSet):
             is_active=True
         ).select_related('subject').order_by('sort_order', 'subject__name')
 
-        subjects = [cs.subject for cs in queryset if cs.subject]
-        
         paginator = self.pagination_class()
-        page = paginator.paginate_queryset(subjects, request, view=self)
+        page = paginator.paginate_queryset(queryset, request, view=self)
         if page is not None:
-            serializer = SubjectSupportSerializer(page, many=True)
+            serializer = ClassSubjectSupportSerializer(page, many=True)
             return paginator.get_paginated_response(serializer.data)
 
-        serializer = SubjectSupportSerializer(subjects, many=True)
+        serializer = ClassSubjectSupportSerializer(queryset, many=True)
         return Response(serializer.data)
 
 
@@ -642,3 +652,106 @@ class PeriodViewSet(viewsets.ModelViewSet):
 
     def perform_update(self, serializer):
         serializer.save()
+
+
+@extend_schema_view(
+    list=extend_schema(tags=['Class Timetable']),
+    create=extend_schema(tags=['Class Timetable']),
+    retrieve=extend_schema(tags=['Class Timetable']),
+    update=extend_schema(tags=['Class Timetable']),
+    partial_update=extend_schema(tags=['Class Timetable']),
+    destroy=extend_schema(tags=['Class Timetable']),
+)
+class ClassTimetableViewSet(viewsets.ModelViewSet):
+    serializer_class = ClassTimetableSerializer
+    permission_classes = [IsSchoolAdmin]
+    pagination_class = StandardPagination
+    lookup_field = 'uuid'
+    lookup_url_kwarg = 'uuid'
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['class_obj__uuid', 'class_obj__academic_year', 'is_published', 'is_save_as_draft']
+    search_fields = ['class_obj__class_name', 'class_obj__section']
+    ordering_fields = ['created_at', 'class_obj__class_name', 'class_obj__academic_year']
+    ordering = ['-created_at']
+
+    def get_class_object(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return None
+
+        school = get_school(self)
+        class_uuid = self.kwargs.get('class_uuid')
+        if not class_uuid:
+            return None
+
+        return get_object_or_404(
+            SchoolClass,
+            uuid=class_uuid,
+            school=school,
+            is_active=True,
+        )
+
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return ClassTimetable.objects.none()
+
+        school = get_school(self)
+        entry_queryset = ClassTimetableEntry.objects.select_related(
+            'period',
+            'subject',
+            'subject__subject',
+            'subject__subject_class',
+            'teacher',
+            'teacher__user',
+        ).filter(is_active=True).order_by('day', 'period__order', 'period__start_time')
+
+        return ClassTimetable.objects.filter(
+            school=school,
+            class_obj=self.get_class_object(),
+            class_obj__school=school,
+            is_active=True,
+        ).select_related(
+            'school',
+            'class_obj',
+            'class_obj__school',
+        ).prefetch_related(
+            Prefetch('time_table', queryset=entry_queryset)
+        )
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context['school'] = get_school(self)
+        if self.action != 'list':
+            context['class_obj'] = self.get_class_object()
+        return context
+
+    def get_object(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return None
+
+        school = get_school(self)
+        class_obj = self.get_class_object()
+        timetable_uuid = self.kwargs.get('uuid')
+        obj = self.get_queryset().filter(
+            school=school,
+            class_obj=class_obj,
+            uuid=timetable_uuid,
+        ).first()
+
+        if not obj:
+            raise Http404
+
+        return obj
+
+    @transaction.atomic
+    def create(self, request, *args, **kwargs):
+        return super().create(request, *args, **kwargs)
+
+    @transaction.atomic
+    def update(self, request, *args, **kwargs):
+        kwargs['partial'] = True
+        return super().update(request, *args, **kwargs)
+
+    # def perform_destroy(self, instance):
+    #     instance.is_active = False
+    #     instance.save(update_fields=['is_active', 'updated_at'])
+    #     instance.time_table.update(is_active=False)

@@ -58,7 +58,6 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
 ]
 
@@ -193,5 +192,6 @@ SPECTACULAR_SETTINGS = {
     },
     'ENUM_NAME_OVERRIDES': {
         'MediumEnum': 'common.choices.ClassMedium',
+        'CountryEnum': 'django_countries.fields.countries',
     },
-    }
+}

@@ -116,11 +116,6 @@ class ClassTimeTableDays(models.TextChoices):
     SATURDAY = 'SATURDAY', 'Saturday'
     SUNDAY = 'SUNDAY', 'Sunday'
 
-# Exam Status
-class ExamStatus(models.TextChoices):
-    DRAFT = 'DRAFT', 'Draft'
-    PUBLISHED = 'PUBLISHED', 'Published'
-
 # Exam Sessions
 class ExamSessions(models.TextChoices):
     FN = 'FN', 'Forenoon'

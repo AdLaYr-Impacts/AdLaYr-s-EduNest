@@ -24,7 +24,9 @@ from webapp.models import (
     StudentAcademicdetails,
     AttendanceSession,
     StudentAttendance,
-    Period
+    Period,
+    ClassTimetable,
+    ClassTimetableEntry,
 )
 from common.choices import (
     UserRoles, 
@@ -33,7 +35,8 @@ from common.choices import (
     AddressType,
     SubjectType,
     CasteCategory,
-    Attendance
+    Attendance,
+    ClassTimeTableDays,
 )
 from drf_spectacular.utils import extend_schema_field
 from django_countries.serializer_fields import CountryField
@@ -399,7 +402,7 @@ class SchoolClassSerializer(serializers.ModelSerializer):
             'smart_class_enabled', 'class_color_code', 'class_teacher_uuid',
             'assistant_teachers_uuids', 'class_teacher', 'assistant_teacher'
         ]
-        read_only_fields = ['uuid']
+        read_only_fields = ['uuid', 'academic_year']
 
     def validate_class_name(self, value):
         if value and not value.strip():
@@ -420,7 +423,7 @@ class SchoolClassSerializer(serializers.ModelSerializer):
         school = self.context.get('school')
         class_name = data.get('class_name', self.instance.class_name if self.instance else None)
         section = data.get('section', self.instance.section if self.instance else None)
-        academic_year = data.get('academic_year', self.instance.academic_year if self.instance else None)
+        academic_year = school.academic_year if school else None
         
         if not class_name:
             raise serializers.ValidationError({"class_name": "This field is required."})
@@ -469,6 +472,7 @@ class SchoolClassSerializer(serializers.ModelSerializer):
 
         school_class = SchoolClass.objects.create(
             school=school,
+            academic_year=school.academic_year,
             **validated_data
         )
 
@@ -492,6 +496,8 @@ class SchoolClassSerializer(serializers.ModelSerializer):
         old_assistant_teachers = set(instance.assistant_teacher.all())
 
         assistant_teachers = validated_data.pop('assistant_teacher', None)
+        school = self.context.get('school')
+        validated_data['academic_year'] = school.academic_year if school else instance.academic_year
 
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
@@ -536,12 +542,11 @@ class SchoolClassSerializer(serializers.ModelSerializer):
 
 class TeacherSummarySerializer(serializers.ModelSerializer):
     full_name = serializers.CharField(source='user.get_full_name', read_only=True)
-    class_teacher_count = serializers.IntegerField(read_only=True)
-    assistant_class_teacher_count = serializers.IntegerField(read_only=True)
+    already_assigned_count = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = SchoolTeacher
-        fields = ['uuid', 'full_name', 'class_teacher_count', 'assistant_class_teacher_count']
+        fields = ['uuid', 'full_name', 'already_assigned_count']
 
 
 class SubjectSerializer(serializers.ModelSerializer):
@@ -653,6 +658,46 @@ class ClassSubjectGroupSerializer(serializers.ModelSerializer):
             subjects = [cs.subject for cs in class_subjects]
         return SubjectListSerializer(subjects, many=True).data
 
+class TeacherUUIDField(serializers.Field):
+    def __init__(self, **kwargs):
+        self.queryset = kwargs.pop('queryset')
+        super().__init__(**kwargs)
+
+    def to_internal_value(self, data):
+        if data in (None, ''):
+            return []
+
+        if not isinstance(data, (list, tuple)):
+            data = [data]
+
+        teachers = []
+        seen = set()
+
+        for teacher_uuid in data:
+            try:
+                teacher = self.queryset.get(uuid=teacher_uuid)
+            except self.queryset.model.DoesNotExist:
+                raise serializers.ValidationError({
+                    'teacher_uuid': f'Teacher with UUID {teacher_uuid} does not exist.'
+                })
+
+            if str(teacher.uuid) not in seen:
+                seen.add(str(teacher.uuid))
+                teachers.append(teacher)
+
+        return teachers
+
+    def to_representation(self, value):
+        if value is None:
+            return []
+
+        if hasattr(value, 'all'):
+            return [str(item.uuid) for item in value.all() if item]
+
+        if isinstance(value, (list, tuple, set)):
+            return [str(item.uuid) for item in value if item]
+
+        return [str(getattr(value, 'uuid', value))]
 
 class ClassSubjectSerializer(serializers.ModelSerializer):
     subject_uuid = serializers.SlugRelatedField(
@@ -665,17 +710,15 @@ class ClassSubjectSerializer(serializers.ModelSerializer):
         queryset=SchoolClass.objects.all(),
         source='subject_class'
     )
-    teacher_uuid = serializers.SlugRelatedField(
-        slug_field='uuid',
+    teacher_uuid = TeacherUUIDField(
         queryset=SchoolTeacher.objects.all(),
         source='teacher',
-        required=False,
-        allow_null=True
+        required=False
     )
     
     subject_details = SubjectListSerializer(source='subject', read_only=True)
     class_details = ClassListSerializer(source='subject_class', read_only=True)
-    teacher_details = TeacherMiniSerializer(source='teacher', read_only=True)
+    teacher_details = TeacherMiniSerializer(source='teacher', many=True, read_only=True)
     
     class Meta:
         model = ClassSubjects
@@ -690,7 +733,7 @@ class ClassSubjectSerializer(serializers.ModelSerializer):
         school = self.context.get('school')
         subject = data.get('subject')
         subject_class = data.get('subject_class')
-        teacher = data.get('teacher')
+        teachers = data.get('teacher') or []
 
         # School validations
         if subject and subject.school != school:
@@ -699,7 +742,7 @@ class ClassSubjectSerializer(serializers.ModelSerializer):
         if subject_class and subject_class.school != school:
             raise serializers.ValidationError({"class_uuid": "Class does not belong to this school."})
             
-        if teacher:
+        for teacher in teachers:
             if teacher.school != school:
                 raise serializers.ValidationError({"teacher_uuid": "Teacher does not belong to this school."})
             if teacher.user.is_deleted:
@@ -735,11 +778,19 @@ class ClassSubjectSerializer(serializers.ModelSerializer):
 
     @transaction.atomic
     def create(self, validated_data):
-        return super().create(validated_data)
+        teachers = validated_data.pop('teacher', [])
+        instance = super().create(validated_data)
+        if teachers:
+            instance.teacher.add(*teachers)
+        return instance
 
     @transaction.atomic
     def update(self, instance, validated_data):
-        return super().update(instance, validated_data)
+        teachers = validated_data.pop('teacher', None)
+        instance = super().update(instance, validated_data)
+        if teachers is not None:
+            instance.teacher.set(teachers)
+        return instance
 
 
 class SubjectGroupSerializer(serializers.ModelSerializer):
@@ -1337,6 +1388,16 @@ class SubjectSupportSerializer(serializers.ModelSerializer):
         fields = ['subject_uuid', 'subject_name']
 
 
+class ClassSubjectSupportSerializer(serializers.ModelSerializer):
+    class_subject_uuid = serializers.UUIDField(source='uuid', read_only=True)
+    subject_uuid = serializers.UUIDField(source='subject.uuid', read_only=True)
+    subject_name = serializers.CharField(source='subject.name', read_only=True)
+
+    class Meta:
+        model = ClassSubjects
+        fields = ['class_subject_uuid', 'subject_uuid', 'subject_name', 'is_optional']
+
+
 class StudentAttendanceListSerializer(serializers.ListSerializer):
     @transaction.atomic
     def create(self, validated_data):
@@ -1436,6 +1497,7 @@ class StudentAttendanceSerializer(serializers.ModelSerializer):
             'student_name', 'student_code', 'roll_number', 'attendance_date'
         ]
 
+    @extend_schema_field(serializers.CharField(allow_null=True))
     def get_roll_number(self, obj):
         if obj.student:
             academic = obj.student.student_academic_details.first()
@@ -1646,3 +1708,536 @@ class PeriodSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         # The school and class_obj cannot be changed after creation, so they are not in validated_data
         return super().update(instance, validated_data)
+
+
+# DEPENDENCIES - CLASS TIMETABLE ENTRIES
+def _times_overlap(start_a, end_a, start_b, end_b):
+    return start_a < end_b and start_b < end_a
+
+
+def _entry_value(entry, key):
+    if isinstance(entry, dict):
+        return entry.get(key)
+    return getattr(entry, key, None)
+
+
+def _entry_conflicts(entry_a, entry_b):
+    teacher_a = _entry_value(entry_a, 'teacher')
+    teacher_b = _entry_value(entry_b, 'teacher')
+    day_a = _entry_value(entry_a, 'day')
+    day_b = _entry_value(entry_b, 'day')
+    period_a = _entry_value(entry_a, 'period')
+    period_b = _entry_value(entry_b, 'period')
+
+    if not teacher_a or not teacher_b or not day_a or not day_b or not period_a or not period_b:
+        return False
+
+    if teacher_a.id != teacher_b.id or day_a != day_b:
+        return False
+
+    if not period_a.start_time or not period_a.end_time or not period_b.start_time or not period_b.end_time:
+        return False
+
+    return _times_overlap(period_a.start_time, period_a.end_time, period_b.start_time, period_b.end_time)
+
+
+class ClassTimetableEntryListSerializer(serializers.ListSerializer):
+    def _get_timetable_instance(self):
+        timetable = self.context.get('timetable')
+        if isinstance(timetable, ClassTimetable):
+            return timetable
+
+        parent = getattr(self, 'parent', None)
+        while parent is not None:
+            parent_instance = getattr(parent, 'instance', None)
+            if isinstance(parent_instance, ClassTimetable):
+                return parent_instance
+            parent = getattr(parent, 'parent', None)
+
+        return None
+
+    def _get_existing_instances(self):
+        if isinstance(self.instance, (list, tuple)):
+            return list(self.instance)
+
+        if self.instance is None:
+            timetable = self._get_timetable_instance()
+            if timetable is not None:
+                return list(timetable.time_table.filter(is_active=True))
+            return []
+
+        if hasattr(self.instance, "all"):
+            return list(self.instance.all())
+
+        return [self.instance]
+
+    def validate(self, attrs):
+        school = self.context.get('school')
+        class_obj = self.context.get('class_obj')
+
+        if not school or not class_obj:
+            raise serializers.ValidationError('School and class are required for class timetable entries.')
+
+        existing_instances = {
+            str(entry.uuid): entry for entry in self._get_existing_instances()
+        }
+
+        request_uuids = {str(item.get('uuid')) for item in attrs if item.get('uuid')}
+
+        existing_entries = list(
+            ClassTimetableEntry.objects.filter(
+                timetable__school=school,
+                timetable__class_obj__academic_year=class_obj.academic_year,
+                timetable__is_active=True,
+            ).exclude(uuid__in=request_uuids).select_related('timetable', 'timetable__class_obj', 'teacher', 'teacher__user', 'period')
+        )
+        class_entries = list(
+            ClassTimetableEntry.objects.filter(
+                timetable__school=school,
+                timetable__class_obj=class_obj,
+                timetable__is_active=True,
+                is_active=True,
+            ).exclude(uuid__in=request_uuids).select_related('timetable', 'timetable__class_obj', 'teacher', 'teacher__user', 'period')
+        )
+
+        request_slots = set()
+        merged_entries = []
+
+        for item in attrs:
+            entry_uuid = item.get('uuid')
+            existing_instance = existing_instances.get(str(entry_uuid)) if entry_uuid else None
+
+            if entry_uuid and not existing_instance:
+                if self._get_timetable_instance() is None:
+                    raise serializers.ValidationError({'id': 'UUID cannot be provided while creating class timetable entries.'})
+                raise serializers.ValidationError({'id': f'Entry {entry_uuid} does not belong to this class timetable.'})
+
+            merged_entry = {
+                'uuid': str(existing_instance.uuid) if existing_instance else (str(entry_uuid) if entry_uuid else None),
+                'day': item.get('day', _entry_value(existing_instance, 'day')),
+                'period': item.get('period', _entry_value(existing_instance, 'period')),
+                'subject': item.get('subject', _entry_value(existing_instance, 'subject')),
+                'teacher': item.get('teacher', _entry_value(existing_instance, 'teacher')),
+            }
+
+            period = merged_entry['period']
+            if merged_entry['day'] and period:
+                slot_key = (merged_entry['day'], period.id)
+                if slot_key in request_slots:
+                    raise serializers.ValidationError({
+                        'entries': f'Duplicate timetable entry for {merged_entry["day"]} and {period.name} in the request.'
+                    })
+                request_slots.add(slot_key)
+
+                for existing in class_entries:
+                    if merged_entry['uuid'] and str(existing.uuid) == merged_entry['uuid']:
+                        continue
+                    if existing.day == merged_entry['day'] and existing.period_id == period.id:
+                        raise serializers.ValidationError({
+                            'entries': f'Class timetable entry for {merged_entry["day"]} and {period.name} already exists in this class.'
+                        })
+
+            if merged_entry['teacher'] and period and not period.is_break:
+                conflict = None
+                for existing in existing_entries:
+                    if merged_entry['uuid'] and str(existing.uuid) == merged_entry['uuid']:
+                        continue
+                    if _entry_conflicts(merged_entry, existing):
+                        conflict = existing
+                        break
+
+                if conflict is None:
+                    for previous in merged_entries:
+                        if merged_entry['uuid'] and previous['uuid'] == merged_entry['uuid']:
+                            continue
+                        if _entry_conflicts(merged_entry, previous):
+                            conflict = previous
+                            break
+
+                if conflict:
+                    conflict_class_name = f"{conflict.timetable.class_obj.class_name}{conflict.timetable.class_obj.section}" if hasattr(conflict, 'timetable') else f"{class_obj.class_name}{class_obj.section}"
+                    raise serializers.ValidationError({
+                        'entries': (
+                            f"Teacher {merged_entry['teacher'].user.get_full_name()} already assigned to the Class "
+                            f"{conflict_class_name} at the same duration"
+                        )
+                    })
+
+            merged_entries.append(merged_entry)
+
+        return attrs
+
+    @transaction.atomic
+    def create(self, validated_data):
+        timetable = self.context.get('timetable')
+        if not timetable:
+            raise serializers.ValidationError('Class timetable context is required.')
+
+        created_entries = []
+        for item in validated_data:
+            created_entries.append(ClassTimetableEntry.objects.create(timetable=timetable, **item))
+        return created_entries
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        timetable = self.context.get('timetable')
+        if not timetable:
+            raise serializers.ValidationError('Class timetable context is required.')
+
+        existing_entries = {str(entry.uuid): entry for entry in instance}
+        updated_entries = []
+
+        for item in validated_data:
+            entry_uuid = item.pop('uuid', None)
+            if entry_uuid:
+                entry = existing_entries.get(str(entry_uuid))
+                if not entry:
+                    raise serializers.ValidationError({
+                        'id': f'Entry {entry_uuid} does not belong to this class timetable.'
+                    })
+
+                for attr, value in item.items():
+                    setattr(entry, attr, value)
+                entry.save()
+                updated_entries.append(entry)
+            else:
+                updated_entries.append(ClassTimetableEntry.objects.create(timetable=timetable, **item))
+
+        return updated_entries
+
+
+class ClassTimetableEntrySerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(source='uuid', required=False)
+    day = serializers.ChoiceField(choices=ClassTimeTableDays.choices)
+    period_uuid = serializers.SlugRelatedField(
+        slug_field='uuid',
+        queryset=Period.objects.all(),
+        source='period'
+    )
+    subject_uuid = serializers.SlugRelatedField(
+        slug_field='uuid',
+        queryset=ClassSubjects.objects.all(),
+        source='subject',
+        required=False,
+        allow_null=True
+    )
+    teacher_uuid = serializers.SlugRelatedField(
+        slug_field='uuid',
+        queryset=SchoolTeacher.objects.all(),
+        source='teacher',
+        required=False,
+        allow_null=True
+    )
+
+    period_details = PeriodSerializer(source='period', read_only=True)
+    subject_details = ClassSubjectSerializer(source='subject', read_only=True)
+    teacher_details = TeacherMiniSerializer(source='teacher', read_only=True)
+
+    class Meta:
+        model = ClassTimetableEntry
+        list_serializer_class = ClassTimetableEntryListSerializer
+        fields = [
+            'id', 'day', 'period_uuid', 'subject_uuid', 'teacher_uuid',
+            'period_details', 'subject_details', 'teacher_details',
+        ]
+
+    def _get_timetable_instance(self):
+        timetable = self.context.get('timetable')
+        if isinstance(timetable, ClassTimetable):
+            return timetable
+
+        parent = getattr(self, 'parent', None)
+        while parent is not None:
+            parent_instance = getattr(parent, 'instance', None)
+            if isinstance(parent_instance, ClassTimetable):
+                return parent_instance
+            parent = getattr(parent, 'parent', None)
+
+        return None
+
+    def _get_current_instance(self, data):
+        if isinstance(self.instance, ClassTimetableEntry):
+            return self.instance
+
+        timetable = self._get_timetable_instance()
+        entry_uuid = data.get('uuid')
+
+        if timetable and entry_uuid:
+            return timetable.time_table.filter(uuid=entry_uuid, is_active=True).first()
+
+        return None
+
+    def validate(self, data):
+        school = self.context.get('school')
+        class_obj = self.context.get('class_obj')
+
+        current_instance = self._get_current_instance(data)
+        entry_uuid = data.get('uuid')
+        timetable = self._get_timetable_instance()
+
+        if entry_uuid and timetable and current_instance is None:
+            raise serializers.ValidationError({
+                'id': f'Entry {entry_uuid} does not belong to this class timetable.'
+            })
+
+        period = data.get('period', _entry_value(current_instance, 'period'))
+        subject = data.get('subject', _entry_value(current_instance, 'subject'))
+        teacher = data.get('teacher', _entry_value(current_instance, 'teacher'))
+        day = data.get('day', _entry_value(current_instance, 'day'))
+
+        errors = {}
+
+        if not school or not class_obj:
+            raise serializers.ValidationError("School and class are required for timetable entries.")
+
+        if period:
+            if period.school != school:
+                errors['period_uuid'] = 'Period does not belong to this school.'
+            if period.class_obj != class_obj:
+                errors['period_uuid'] = 'Period does not belong to this class.'
+            if period.start_time is None or period.end_time is None:
+                errors['period_uuid'] = 'Period start time and end time are required.'
+            elif period.end_time <= period.start_time:
+                errors['period_uuid'] = 'Period end time must be after start time.'
+
+        if subject:
+            if subject.subject_class is None or subject.subject_class.school != school:
+                errors['subject_uuid'] = 'Subject does not belong to this school.'
+            elif subject.subject_class != class_obj:
+                errors['subject_uuid'] = 'Subject does not belong to this class.'
+
+        if teacher:
+            if teacher.school != school:
+                errors['teacher_uuid'] = 'Teacher does not belong to this school.'
+            elif teacher.user and teacher.user.is_deleted:
+                errors['teacher_uuid'] = (
+                    f"The teacher '{teacher.user.get_full_name()}' cannot be assigned because their account has been deactivated or deleted."
+                )
+
+        if period and not period.is_break:
+            if not subject:
+                errors['subject_uuid'] = 'Subject is required for non-break periods.'
+            if not teacher:
+                errors['teacher_uuid'] = 'Teacher is required for non-break periods.'
+
+        if period and day:
+            class_slot_query = ClassTimetableEntry.objects.filter(
+                timetable__school=school,
+                timetable__class_obj=class_obj,
+                timetable__is_active=True,
+                is_active=True,
+                day=day,
+                period=period,
+            )
+            if current_instance:
+                class_slot_query = class_slot_query.exclude(uuid=current_instance.uuid)
+            if class_slot_query.exists():
+                errors['entries'] = f'Class timetable entry for {day} and {period.name} already exists in this class.'
+
+        if teacher and period and day and not period.is_break:
+            conflict_entries = ClassTimetableEntry.objects.filter(
+                timetable__school=school,
+                timetable__class_obj__academic_year=class_obj.academic_year,
+                timetable__is_active=True,
+            ).select_related('timetable', 'timetable__class_obj', 'teacher', 'teacher__user', 'period')
+
+            if current_instance:
+                conflict_entries = conflict_entries.exclude(uuid=current_instance.uuid)
+
+            conflict = None
+            for existing in conflict_entries:
+                if _entry_conflicts(
+                    {'teacher': teacher, 'day': day, 'period': period},
+                    existing,
+                ):
+                    conflict = existing
+                    break
+
+            if conflict:
+                errors['teacher_uuid'] = (
+                    f"Teacher {teacher.user.get_full_name()} already assigned to the Class "
+                    f"{conflict.timetable.class_obj.class_name}{conflict.timetable.class_obj.section} at the same duration"
+                )
+
+        if errors:
+            raise serializers.ValidationError(errors)
+
+        return data
+
+
+class ClassTimetableSerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(source='uuid', read_only=True)
+    class_details = ClassListSerializer(source='class_obj', read_only=True)
+    entries = ClassTimetableEntrySerializer(many=True, source='time_table', required=False)
+    is_published = serializers.BooleanField(required=False)
+    is_save_as_draft = serializers.BooleanField(required=False)
+
+    class Meta:
+        model = ClassTimetable
+        fields = [
+            'id', 'class_details', 'is_published', 'is_save_as_draft',
+            'is_active', 'entries',
+        ]
+        read_only_fields = ['id', 'is_active']
+
+    def _sync_class_subject_teacher(self, subject, teacher):
+        if not subject or not teacher:
+            return
+
+        subject.teacher.add(teacher)
+
+    def _sync_timetable_class_subject_teachers(self, timetable):
+        subjects = {}
+        entries = timetable.time_table.select_related('subject', 'teacher').filter(is_active=True)
+
+        for entry in entries:
+            if not entry.subject or not entry.teacher:
+                continue
+            subjects.setdefault(entry.subject_id, {"subject": entry.subject, "teachers": set()})
+            subjects[entry.subject_id]["teachers"].add(entry.teacher)
+
+        for item in subjects.values():
+            item["subject"].teacher.set(list(item["teachers"]))
+
+    def validate(self, data):
+        school = self.context.get('school')
+        class_obj = self.context.get('class_obj')
+        entries = data.get('time_table')
+
+        if not school or not class_obj:
+            raise serializers.ValidationError('School and class are required for class timetables.')
+
+        published_provided = 'is_published' in data
+        draft_provided = 'is_save_as_draft' in data
+        is_published = data.get('is_published', self.instance.is_published if self.instance else None)
+        is_save_as_draft = data.get('is_save_as_draft', self.instance.is_save_as_draft if self.instance else None)
+
+        if self.instance is None and is_published is None and is_save_as_draft is None:
+            raise serializers.ValidationError({
+                'is_published': 'Either is_published or is_save_as_draft is required.'
+            })
+
+        if published_provided and draft_provided:
+            if is_published == is_save_as_draft:
+                raise serializers.ValidationError({
+                    'is_published': 'is_published and is_save_as_draft cannot be the same value.'
+                })
+        elif published_provided:
+            is_save_as_draft = not is_published
+        elif draft_provided:
+            is_published = not is_save_as_draft
+
+        data['is_published'] = is_published
+        data['is_save_as_draft'] = is_save_as_draft
+
+        if self.instance is None:
+            exists = ClassTimetable.objects.filter(
+                school=school,
+                class_obj=class_obj,
+                is_active=True,
+            ).exists()
+            if exists:
+                raise serializers.ValidationError({
+                    'class_uuid': 'Class timetable already exists for this class.'
+                })
+
+        if entries is not None:
+            seen_slots = set()
+            timetable_id = self.instance.id if self.instance else None
+            academic_year = class_obj.academic_year
+
+            for entry in entries:
+                day = entry.get('day')
+                period = entry.get('period')
+                teacher = entry.get('teacher')
+                subject = entry.get('subject')
+                entry_uuid = entry.get('uuid')
+
+                slot_key = (day, period.id)
+                if slot_key in seen_slots:
+                    raise serializers.ValidationError({
+                        'entries': f'Duplicate timetable entry for {day} and {period.name} in the request.'
+                    })
+                seen_slots.add(slot_key)
+
+                if teacher and period and not period.is_break:
+                    conflict_query = ClassTimetableEntry.objects.filter(
+                        teacher=teacher,
+                        day=day,
+                        timetable__school=school,
+                        timetable__class_obj__academic_year=academic_year,
+                        timetable__is_active=True,
+                        period__start_time__lt=period.end_time,
+                        period__end_time__gt=period.start_time,
+                    ).select_related('timetable__class_obj', 'teacher__user', 'period')
+
+                    if timetable_id:
+                        conflict_query = conflict_query.exclude(timetable_id=timetable_id)
+                    if entry_uuid:
+                        conflict_query = conflict_query.exclude(uuid=entry_uuid)
+
+                    conflict = conflict_query.first()
+                    if conflict:
+                        raise serializers.ValidationError({
+                            'entries': (
+                                f"Teacher {teacher.user.get_full_name()} already assigned to the Class "
+                                f"{conflict.timetable.class_obj.class_name}{conflict.timetable.class_obj.section} at the same duration"
+                            )
+                        })
+
+        return data
+
+    @transaction.atomic
+    def create(self, validated_data):
+        entries = validated_data.pop('time_table', [])
+        school = self.context.get('school')
+        class_obj = self.context.get('class_obj')
+
+        timetable = ClassTimetable.objects.create(
+            school=school,
+            class_obj=class_obj,
+            **validated_data
+        )
+
+        for entry in entries:
+            ClassTimetableEntry.objects.create(timetable=timetable, **entry)
+
+        self._sync_timetable_class_subject_teachers(timetable)
+
+        return timetable
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        entries = validated_data.pop('time_table', None)
+
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+
+        if entries is not None:
+            existing_entries = {str(entry.uuid): entry for entry in instance.time_table.all()}
+            incoming_uuids = set()
+
+            for entry_data in entries:
+                entry_uuid = str(entry_data.pop('uuid', '')) if entry_data.get('uuid') else None
+
+                if entry_uuid:
+                    if entry_uuid not in existing_entries:
+                        raise serializers.ValidationError({
+                            'entries': f'Entry {entry_uuid} does not belong to this timetable.'
+                        })
+
+                    incoming_uuids.add(entry_uuid)
+                    entry_obj = existing_entries[entry_uuid]
+                    for attr, value in entry_data.items():
+                        setattr(entry_obj, attr, value)
+                    entry_obj.save()
+                else:
+                    created_entry = ClassTimetableEntry.objects.create(timetable=instance, **entry_data)
+                    incoming_uuids.add(str(created_entry.uuid))
+
+            ClassTimetableEntry.objects.filter(timetable=instance).exclude(uuid__in=incoming_uuids).delete()
+
+            self._sync_timetable_class_subject_teachers(instance)
+
+        return instance
