@@ -3,7 +3,7 @@ from .views import (
     TeacherViewSet, SchoolClassViewSet, TeacherSummaryViewSet, 
     SubjectViewSet, SubjectListViews, ClassSubjectViewSet, SubjectGroupViewSet,
     StudentViewSet, StudentSupportView, StudentAttendanceViewSet, PeriodViewSet,
-    ClassTimetableViewSet,
+    ClassTimetableViewSet, ExamTypeViewSet,
 )
 
 urlpatterns = [
@@ -117,5 +117,15 @@ urlpatterns = [
         'get': 'retrieve',
         'put': 'update',
         'patch': 'partial_update',
+    })),
+    path('exam-types/', ExamTypeViewSet.as_view({
+        'get': 'list',
+        'post': 'create'
+    })),
+    path('exam-types/<uuid:uuid>/', ExamTypeViewSet.as_view({
+        'get': 'retrieve',
+        'put': 'update',
+        'patch': 'partial_update',
+        'delete': 'destroy'
     })),
 ]

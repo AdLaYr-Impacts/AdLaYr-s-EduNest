@@ -16,6 +16,7 @@ from webapp.models import (
     School,
     SchoolClass,
     Subjects,
+    ExamType,
     ClassSubjects,
     SubjectGroup,
     Students,
@@ -2241,3 +2242,40 @@ class ClassTimetableSerializer(serializers.ModelSerializer):
             self._sync_timetable_class_subject_teachers(instance)
 
         return instance
+
+
+class ExamTypeSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = ExamType
+        fields = ['uuid', 'name', 'is_active']
+        read_only_fields = ['id']
+
+    def validate_name(self, value):
+        if value and not value.strip():
+            raise serializers.ValidationError("Exam type name cannot be whitespace only.")
+        return value
+
+    def validate(self, data):
+        name = data.get('name', self.instance.name if self.instance else None)
+
+        if not name:
+            raise serializers.ValidationError({"name": "Exam type name is required."})
+
+        query = ExamType.objects.filter(name__iexact=name)
+        if self.instance:
+            query = query.exclude(pk=self.instance.pk)
+
+        if query.exists():
+            raise serializers.ValidationError({"name": f"Exam type {name} already exists."})
+
+        return data
+
+    @transaction.atomic
+    def create(self, validated_data):
+        validated_data['school'] = self.context.get('school')
+        return super().create(validated_data)
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        return super().update(instance, validated_data)
