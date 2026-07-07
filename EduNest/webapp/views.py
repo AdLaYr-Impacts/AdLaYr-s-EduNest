@@ -8,7 +8,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 
 from django.db.models import Count, Prefetch, Q
 from .models import (
-    SchoolTeacher, SchoolClass, Subjects, ClassSubjects, SubjectGroup, Students, 
+    SchoolTeacher, SchoolClass, Subjects, ExamType, ClassSubjects, SubjectGroup, Students, 
     StudentParentDetails, AttendanceSession, StudentAttendance, Period,
     ClassTimetable, ClassTimetableEntry,
 )
@@ -18,7 +18,7 @@ from .serializers import (
     ClassSubjectSerializer, ClassSubjectGroupSerializer, SubjectGroupSerializer,
     StudentSerializer, SchoolClassSupportSerializer, StudentSupportSerializer, 
     ClassSubjectSupportSerializer, StudentAttendanceSerializer, PeriodSerializer,
-    ClassTimetableSerializer,
+    ClassTimetableSerializer, ExamTypeSerializer,
 )
 from permissions.permissions import IsSchoolAdmin, IsSchoolAdminOrClassTeacher
 from common.pagination import StandardPagination
@@ -755,3 +755,40 @@ class ClassTimetableViewSet(viewsets.ModelViewSet):
     #     instance.is_active = False
     #     instance.save(update_fields=['is_active', 'updated_at'])
     #     instance.time_table.update(is_active=False)
+
+
+@extend_schema_view(
+    list=extend_schema(tags=['Exam Types']),
+    create=extend_schema(tags=['Exam Types']),
+    retrieve=extend_schema(tags=['Exam Types']),
+    update=extend_schema(tags=['Exam Types']),
+    partial_update=extend_schema(tags=['Exam Types']),
+    destroy=extend_schema(tags=['Exam Types']),
+)
+class ExamTypeViewSet(viewsets.ModelViewSet):
+    serializer_class = ExamTypeSerializer
+    permission_classes = [IsSchoolAdmin]
+    pagination_class = StandardPagination
+    lookup_field = 'uuid'
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['is_active']
+    search_fields = ['name']
+    ordering_fields = ['created_at', 'name']
+
+    def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False):
+            return ExamType.objects.none()
+        school = get_school(self)
+        return ExamType.objects.filter(
+            school=school
+        ).select_related('school')
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context['school'] = get_school(self)
+        return context
+
+    def update(self, request, *args, **kwargs):
+        kwargs['partial'] = True
+        return super().update(request, *args, **kwargs)
+
