@@ -497,6 +497,7 @@ class Exam(BaseModel):
     Possible: cancel subject's schedule & postpone
     """
     school = models.ForeignKey(School, on_delete=models.CASCADE, related_name="school_exam")
+    academic_year = models.PositiveSmallIntegerField(default=current_year)
     name = models.CharField(max_length=100)
     exam_type = models.ForeignKey(ExamType, on_delete=models.SET_NULL, null=True, blank=True, related_name="exam_type")
     start_date = models.DateField()
