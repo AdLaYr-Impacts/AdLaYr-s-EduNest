@@ -10,7 +10,7 @@ from django.db.models import Count, Prefetch, Q
 from .models import (
     SchoolTeacher, SchoolClass, Subjects, ExamType, ClassSubjects, SubjectGroup, Students, 
     StudentParentDetails, AttendanceSession, StudentAttendance, Period,
-    ClassTimetable, ClassTimetableEntry,
+    ClassTimetable, ClassTimetableEntry, Exam, ExamClass,
 )
 from .serializers import (
     TeacherSerializer, SchoolClassSerializer, TeacherSummarySerializer, 
@@ -18,7 +18,7 @@ from .serializers import (
     ClassSubjectSerializer, ClassSubjectGroupSerializer, SubjectGroupSerializer,
     StudentSerializer, SchoolClassSupportSerializer, StudentSupportSerializer, 
     ClassSubjectSupportSerializer, StudentAttendanceSerializer, PeriodSerializer,
-    ClassTimetableSerializer, ExamTypeSerializer,
+    ClassTimetableSerializer, ExamTypeSerializer, ExamSerializer,
 )
 from permissions.permissions import IsSchoolAdmin, IsSchoolAdminOrClassTeacher
 from common.pagination import StandardPagination
@@ -791,4 +791,71 @@ class ExamTypeViewSet(viewsets.ModelViewSet):
     def update(self, request, *args, **kwargs):
         kwargs['partial'] = True
         return super().update(request, *args, **kwargs)
+
+
+@extend_schema_view(
+    list=extend_schema(tags=['Exams']),
+    create=extend_schema(tags=['Exams']),
+    retrieve=extend_schema(tags=['Exams']),
+    update=extend_schema(tags=['Exams']),
+    partial_update=extend_schema(tags=['Exams']),
+    destroy=extend_schema(tags=['Exams']),
+)
+class ExamViewSet(viewsets.ModelViewSet):
+    serializer_class = ExamSerializer
+    permission_classes = [IsSchoolAdmin]
+    pagination_class = StandardPagination
+    lookup_field = 'uuid'
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['academic_year', 'status', 'is_locked', 'exam_type__uuid']
+    search_fields = ['name', 'exam_type__name', 'exam_classes__class_obj__class_name', 'exam_classes__class_obj__section']
+    ordering_fields = ['created_at', 'start_date', 'end_date', 'name', 'academic_year', 'status']
+    ordering = ['-created_at']
+
+    def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False):
+            return Exam.objects.none()
+
+        school = get_school(self)
+        exam_class_queryset = ExamClass.objects.select_related(
+            'class_obj',
+            'class_obj__school',
+        ).order_by('class_obj__class_name', 'class_obj__section')
+
+        queryset = Exam.objects.filter(
+            school=school,
+            is_active=True,
+        ).select_related(
+            'school',
+            'exam_type',
+            'created_by',
+        ).prefetch_related(
+            Prefetch('exam_classes', queryset=exam_class_queryset)
+        ).distinct()
+
+        if self.action == 'list':
+            academic_year = self.request.query_params.get('academic_year', school.academic_year)
+            if academic_year:
+                queryset = queryset.filter(academic_year=academic_year)
+
+        return queryset
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context['school'] = get_school(self)
+        return context
+
+    @transaction.atomic
+    def create(self, request, *args, **kwargs):
+        return super().create(request, *args, **kwargs)
+
+    @transaction.atomic
+    def update(self, request, *args, **kwargs):
+        kwargs['partial'] = True
+        return super().update(request, *args, **kwargs)
+
+    def perform_destroy(self, instance):
+        instance.is_active = False
+        instance.save(update_fields=['is_active', 'updated_at'])
+        instance.exam_classes.update(is_active=False)
 
