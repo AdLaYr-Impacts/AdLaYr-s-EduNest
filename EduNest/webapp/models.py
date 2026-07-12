@@ -491,11 +491,6 @@ class ExamType(BaseModel):
     
 
 class Exam(BaseModel):
-    """
-    Lock after publish (important) - is_locked key used
-    After lock can't able to edit any thing
-    Possible: cancel subject's schedule & postpone
-    """
     school = models.ForeignKey(School, on_delete=models.CASCADE, related_name="school_exam")
     academic_year = models.PositiveSmallIntegerField(default=current_year)
     name = models.CharField(max_length=100)

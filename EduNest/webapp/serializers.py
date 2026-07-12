@@ -2336,6 +2336,7 @@ class ExamSerializer(serializers.ModelSerializer):
             return data
 
         instance = self.instance
+        today = timezone.localdate()
         name = data.get('name', instance.name if instance else None)
         exam_type = data.get('exam_type', instance.exam_type if instance else None)
         start_date = data.get('start_date', instance.start_date if instance else None)
@@ -2345,17 +2346,20 @@ class ExamSerializer(serializers.ModelSerializer):
         publish = data.get('publish', False)
 
         if instance and instance.is_locked:
-            locked_errors = {}
-            if 'name' in self.initial_data:
-                locked_errors['name'] = "Only start_date, end_date, and classes can be modified after publish."
-            if 'exam_type' in self.initial_data:
-                locked_errors['exam_type'] = "Only start_date, end_date, and classes can be modified after publish."
-            if publish:
-                locked_errors['publish'] = "Published exams cannot be re-published or changed to draft."
-            if save_as_draft:
-                locked_errors['save_as_draft'] = "Published exams cannot be re-published or changed to draft."
-            if locked_errors:
-                raise serializers.ValidationError(locked_errors)
+            raise serializers.ValidationError({"is_locked": "This exam is locked and cannot be edited."})
+
+        if instance and today >= instance.start_date:
+            allowed_fields = {'end_date'}
+            incoming_fields = {
+                key for key in self.initial_data.keys()
+                if key in {'name', 'exam_type', 'classes', 'start_date', 'end_date', 'save_as_draft', 'publish'}
+            }
+            disallowed_fields = sorted(incoming_fields - allowed_fields)
+            if disallowed_fields:
+                raise serializers.ValidationError({
+                    field: "Only end_date can be modified after the exam has started."
+                    for field in disallowed_fields
+                })
 
         if not name:
             raise serializers.ValidationError({"name": "Exam name is required."})
@@ -2377,9 +2381,6 @@ class ExamSerializer(serializers.ModelSerializer):
 
         if classes is not None and not isinstance(classes, list):
             raise serializers.ValidationError({"classes": "Classes must be provided as a list."})
-
-        if not instance and not classes:
-            raise serializers.ValidationError({"classes": "At least one class is required."})
 
         if save_as_draft and publish:
             raise serializers.ValidationError({"publish": "Choose either save_as_draft or publish, not both."})
@@ -2436,7 +2437,7 @@ class ExamSerializer(serializers.ModelSerializer):
         validated_data['academic_year'] = school.academic_year
         validated_data['created_by'] = user
         validated_data['status'] = 'DRAFT' if save_as_draft else 'PUBLISHED'
-        validated_data['is_locked'] = bool(publish)
+        validated_data['is_locked'] = False
 
         exam = Exam.objects.create(**validated_data)
 
@@ -2461,12 +2462,10 @@ class ExamSerializer(serializers.ModelSerializer):
         save_as_draft = validated_data.pop('save_as_draft', False)
         publish = validated_data.pop('publish', False)
 
-        if not instance.is_locked and save_as_draft:
+        if save_as_draft:
             instance.status = 'DRAFT'
-            instance.is_locked = False
-        elif not instance.is_locked and publish:
+        elif publish:
             instance.status = 'PUBLISHED'
-            instance.is_locked = True
 
         for attr, value in validated_data.items():
             setattr(instance, attr, value)

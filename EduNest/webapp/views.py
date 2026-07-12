@@ -1,6 +1,7 @@
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.http import Http404
+from django.utils import timezone
 from rest_framework import viewsets, status, filters
 from rest_framework.response import Response
 from rest_framework.decorators import action
@@ -854,8 +855,18 @@ class ExamViewSet(viewsets.ModelViewSet):
         kwargs['partial'] = True
         return super().update(request, *args, **kwargs)
 
-    def perform_destroy(self, instance):
-        instance.is_active = False
-        instance.save(update_fields=['is_active', 'updated_at'])
-        instance.exam_classes.update(is_active=False)
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if instance.is_locked:
+            return Response(
+                {"is_locked": "This exam is locked and cannot be deleted."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
+        if timezone.localdate() >= instance.start_date:
+            return Response(
+                {"start_date": "This exam has already started and cannot be deleted."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        return super().destroy(request, *args, **kwargs)
