@@ -109,7 +109,8 @@ class SchoolClassViewSet(viewsets.ModelViewSet):
             return SchoolClass.objects.none()
         school = get_school(self)
         return SchoolClass.objects.filter(
-            school=school
+            school=school,
+            academic_year=school.academic_year
         ).select_related(
             'class_teacher', 'class_teacher__user', 'school'
         ).prefetch_related(
