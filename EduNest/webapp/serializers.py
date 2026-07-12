@@ -17,6 +17,8 @@ from webapp.models import (
     SchoolClass,
     Subjects,
     ExamType,
+    Exam,
+    ExamClass,
     ClassSubjects,
     SubjectGroup,
     Students,
@@ -2279,3 +2281,221 @@ class ExamTypeSerializer(serializers.ModelSerializer):
     @transaction.atomic
     def update(self, instance, validated_data):
         return super().update(instance, validated_data)
+
+
+class ExamClassSerializer(serializers.ModelSerializer):
+    class_obj = SchoolClassSupportSerializer(read_only=True)
+
+    class Meta:
+        model = ExamClass
+        fields = ['uuid', 'class_obj']
+
+
+class ExamSerializer(serializers.ModelSerializer):
+    exam_type = serializers.SlugRelatedField(
+        slug_field='uuid',
+        queryset=ExamType.objects.filter(is_active=True),
+        write_only=True
+    )
+    exam_type_detail = ExamTypeSerializer(source='exam_type', read_only=True)
+    start_date = serializers.DateField(input_formats=['%d/%m/%Y', '%Y-%m-%d'])
+    end_date = serializers.DateField(input_formats=['%d/%m/%Y', '%Y-%m-%d'])
+    classes = serializers.ListField(
+        child=serializers.UUIDField(),
+        write_only=True,
+        required=False,
+        allow_empty=True
+    )
+    exam_classes = ExamClassSerializer(many=True, read_only=True)
+    save_as_draft = serializers.BooleanField(write_only=True, required=False, default=False)
+    publish = serializers.BooleanField(write_only=True, required=False, default=False)
+    academic_year = serializers.IntegerField(read_only=True)
+    status = serializers.CharField(read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    is_locked = serializers.BooleanField(read_only=True)
+    created_by = serializers.CharField(source='created_by.username', read_only=True)
+
+    class Meta:
+        model = Exam
+        fields = [
+            'uuid', 'name', 'academic_year', 'exam_type', 'exam_type_detail',
+            'classes', 'exam_classes', 'start_date', 'end_date', 'save_as_draft',
+            'publish', 'status', 'status_display', 'is_locked', 'created_by',
+            'is_active', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['uuid', 'academic_year', 'status', 'status_display', 'is_locked', 'created_by', 'created_at', 'updated_at', 'is_active']
+
+    def validate_name(self, value):
+        if value is not None and not value.strip():
+            raise serializers.ValidationError("Exam name cannot be whitespace only.")
+        return value.strip() if value else value
+
+    def validate(self, data):
+        school = self.context.get('school')
+        if not school:
+            return data
+
+        instance = self.instance
+        today = timezone.localdate()
+        name = data.get('name', instance.name if instance else None)
+        exam_type = data.get('exam_type', instance.exam_type if instance else None)
+        start_date = data.get('start_date', instance.start_date if instance else None)
+        end_date = data.get('end_date', instance.end_date if instance else None)
+        classes = data.get('classes', None)
+        save_as_draft = data.get('save_as_draft', False)
+        publish = data.get('publish', False)
+
+        if instance and instance.is_locked:
+            raise serializers.ValidationError({"is_locked": "This exam is locked and cannot be edited."})
+
+        if instance and today >= instance.start_date:
+            allowed_fields = {'end_date'}
+            incoming_fields = {
+                key for key in self.initial_data.keys()
+                if key in {'name', 'exam_type', 'classes', 'start_date', 'end_date', 'save_as_draft', 'publish'}
+            }
+            disallowed_fields = sorted(incoming_fields - allowed_fields)
+            if disallowed_fields:
+                raise serializers.ValidationError({
+                    field: "Only end_date can be modified after the exam has started."
+                    for field in disallowed_fields
+                })
+
+        if not name:
+            raise serializers.ValidationError({"name": "Exam name is required."})
+
+        if not exam_type:
+            raise serializers.ValidationError({"exam_type": "Exam type is required."})
+
+        if exam_type.school_id != school.id:
+            raise serializers.ValidationError({"exam_type": "Exam type does not belong to this school."})
+
+        if not start_date:
+            raise serializers.ValidationError({"start_date": "Start date is required."})
+
+        if not end_date:
+            raise serializers.ValidationError({"end_date": "End date is required."})
+
+        if end_date < start_date:
+            raise serializers.ValidationError({"end_date": "End date cannot be earlier than start date."})
+
+        if classes is not None and not isinstance(classes, list):
+            raise serializers.ValidationError({"classes": "Classes must be provided as a list."})
+
+        if save_as_draft and publish:
+            raise serializers.ValidationError({"publish": "Choose either save_as_draft or publish, not both."})
+
+        if not instance and not (save_as_draft or publish):
+            raise serializers.ValidationError({"publish": "Choose either save_as_draft or publish."})
+
+        query = Exam.objects.filter(
+            school=school,
+            academic_year=school.academic_year,
+            name__iexact=name,
+            is_active=True,
+        )
+        if instance:
+            query = query.exclude(pk=instance.pk)
+
+        if query.exists():
+            raise serializers.ValidationError({"name": f"Same Exam {name} exists in school."})
+
+        if classes is not None:
+            if len(classes) != len(set(classes)):
+                raise serializers.ValidationError({"classes": "Duplicate class entries are not allowed."})
+
+            class_map = {
+                str(obj.uuid): obj
+                for obj in SchoolClass.objects.filter(
+                    uuid__in=classes,
+                    school=school,
+                    academic_year=school.academic_year,
+                    is_active=True,
+                ).select_related('school')
+            }
+
+            class_errors = {}
+            for index, class_uuid in enumerate(classes):
+                school_class = class_map.get(str(class_uuid))
+                if not school_class:
+                    class_errors[f'classes[{index}]'] = "Class does not belong to this school or academic year."
+
+            if class_errors:
+                raise serializers.ValidationError(class_errors)
+
+        return data
+
+    @transaction.atomic
+    def create(self, validated_data):
+        school = self.context.get('school')
+        user = self.context.get('request').user
+        classes = validated_data.pop('classes', [])
+        save_as_draft = validated_data.pop('save_as_draft', False)
+        publish = validated_data.pop('publish', False)
+
+        validated_data['school'] = school
+        validated_data['academic_year'] = school.academic_year
+        validated_data['created_by'] = user
+        validated_data['status'] = 'DRAFT' if save_as_draft else 'PUBLISHED'
+        validated_data['is_locked'] = False
+
+        exam = Exam.objects.create(**validated_data)
+
+        exam_class_objects = [
+            ExamClass(exam=exam, class_obj=school_class)
+            for school_class in SchoolClass.objects.filter(
+                uuid__in=classes,
+                school=school,
+                academic_year=school.academic_year,
+                is_active=True,
+            )
+        ]
+        if exam_class_objects:
+            ExamClass.objects.bulk_create(exam_class_objects)
+
+        return exam
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        school = self.context.get('school')
+        classes = validated_data.pop('classes', None)
+        save_as_draft = validated_data.pop('save_as_draft', False)
+        publish = validated_data.pop('publish', False)
+
+        if save_as_draft:
+            instance.status = 'DRAFT'
+        elif publish:
+            instance.status = 'PUBLISHED'
+
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+
+        if 'academic_year' not in validated_data:
+            instance.academic_year = school.academic_year
+
+        instance.save()
+
+        if classes is not None:
+            current_classes = {
+                str(item.class_obj.uuid): item
+                for item in instance.exam_classes.select_related('class_obj')
+            }
+            incoming_uuids = {str(class_uuid) for class_uuid in classes}
+
+            ExamClass.objects.filter(exam=instance).exclude(class_obj__uuid__in=incoming_uuids).delete()
+
+            existing_uuids = set(current_classes.keys())
+            new_class_uuids = incoming_uuids - existing_uuids
+            if new_class_uuids:
+                school_classes = SchoolClass.objects.filter(
+                    uuid__in=new_class_uuids,
+                    school=school,
+                    academic_year=school.academic_year,
+                    is_active=True,
+                )
+                ExamClass.objects.bulk_create([
+                    ExamClass(exam=instance, class_obj=school_class)
+                    for school_class in school_classes
+                ])
+
+        return instance
