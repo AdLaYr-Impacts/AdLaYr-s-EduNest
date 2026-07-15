@@ -819,12 +819,22 @@ class ExamViewSet(viewsets.ModelViewSet):
             return Exam.objects.none()
 
         school = get_school(self)
+        return self._get_exam_base_queryset(school)
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context['school'] = get_school(self)
+        if getattr(self, 'exclude_exam_classes', False):
+            context['exclude_exam_classes'] = True
+        return context
+
+    def _get_exam_base_queryset(self, school):
         exam_class_queryset = ExamClass.objects.select_related(
             'class_obj',
             'class_obj__school',
         ).order_by('class_obj__class_name', 'class_obj__section')
 
-        queryset = Exam.objects.filter(
+        return Exam.objects.filter(
             school=school,
             is_active=True,
         ).select_related(
@@ -835,17 +845,28 @@ class ExamViewSet(viewsets.ModelViewSet):
             Prefetch('exam_classes', queryset=exam_class_queryset)
         ).distinct()
 
-        if self.action == 'list':
-            academic_year = self.request.query_params.get('academic_year', school.academic_year)
-            if academic_year:
-                queryset = queryset.filter(academic_year=academic_year)
+    def _get_exam_list_queryset(self, school, class_uuid=None):
+        queryset = self._get_exam_base_queryset(school)
+
+        if class_uuid:
+            queryset = queryset.filter(exam_classes__class_obj__uuid=class_uuid)
+
+        academic_year = self.request.query_params.get('academic_year', school.academic_year)
+        if academic_year:
+            queryset = queryset.filter(academic_year=academic_year)
 
         return queryset
 
-    def get_serializer_context(self):
-        context = super().get_serializer_context()
-        context['school'] = get_school(self)
-        return context
+    def _list_response(self, queryset, request):
+        queryset = self.filter_queryset(queryset)
+        paginator = self.pagination_class()
+        page = paginator.paginate_queryset(queryset, request, view=self)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return paginator.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
 
     @transaction.atomic
     def create(self, request, *args, **kwargs):
@@ -871,3 +892,15 @@ class ExamViewSet(viewsets.ModelViewSet):
             )
 
         return super().destroy(request, *args, **kwargs)
+
+    @extend_schema(
+        tags=['Exams'],
+        summary="List exams by class",
+    )
+    def list_by_class(self, request, class_uuid=None, *args, **kwargs):
+        school = get_school(self)
+        get_object_or_404(SchoolClass, uuid=class_uuid, school=school, is_active=True)
+
+        self.exclude_exam_classes = True
+        queryset = self._get_exam_list_queryset(school, class_uuid=class_uuid)
+        return self._list_response(queryset, request)

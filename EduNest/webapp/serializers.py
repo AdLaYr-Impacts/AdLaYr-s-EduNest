@@ -2499,3 +2499,9 @@ class ExamSerializer(serializers.ModelSerializer):
                 ])
 
         return instance
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        if self.context.get('exclude_exam_classes'):
+            representation.pop('exam_classes', None)
+        return representation

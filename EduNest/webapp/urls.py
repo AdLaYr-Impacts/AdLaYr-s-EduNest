@@ -138,4 +138,7 @@ urlpatterns = [
         'patch': 'partial_update',
         'delete': 'destroy'
     })),
+    path('exams/class/<uuid:class_uuid>/', ExamViewSet.as_view({
+        'get': 'list_by_class'
+    })),
 ]
