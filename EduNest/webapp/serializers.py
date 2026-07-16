@@ -19,6 +19,7 @@ from webapp.models import (
     ExamType,
     Exam,
     ExamClass,
+    ExamSchedule,
     ClassSubjects,
     SubjectGroup,
     Students,
@@ -40,6 +41,7 @@ from common.choices import (
     CasteCategory,
     Attendance,
     ClassTimeTableDays,
+    ExamSessions,
 )
 from drf_spectacular.utils import extend_schema_field
 from django_countries.serializer_fields import CountryField
@@ -2505,3 +2507,187 @@ class ExamSerializer(serializers.ModelSerializer):
         if self.context.get('exclude_exam_classes'):
             representation.pop('exam_classes', None)
         return representation
+
+
+class ExamScheduleExamClassSerializer(serializers.ModelSerializer):
+    exam_uuid = serializers.UUIDField(source='exam.uuid', read_only=True)
+    exam_name = serializers.CharField(source='exam.name', read_only=True)
+    exam_academic_year = serializers.IntegerField(source='exam.academic_year', read_only=True)
+    exam_start_date = serializers.DateField(source='exam.start_date', read_only=True)
+    exam_end_date = serializers.DateField(source='exam.end_date', read_only=True)
+    class_details = SchoolClassSupportSerializer(source='class_obj', read_only=True)
+
+    class Meta:
+        model = ExamClass
+        fields = [
+            'uuid', 'exam_uuid', 'exam_name', 'exam_academic_year',
+            'exam_start_date', 'exam_end_date', 'class_details'
+        ]
+
+
+class ExamScheduleSerializer(serializers.ModelSerializer):
+    exam_class_uuid = serializers.SlugRelatedField(
+        slug_field='uuid',
+        queryset=ExamClass.objects.filter(is_active=True).select_related('exam', 'class_obj', 'class_obj__school'),
+        source='exam_class'
+    )
+    subject_uuid = serializers.SlugRelatedField(
+        slug_field='uuid',
+        queryset=ClassSubjects.objects.filter(is_active=True).select_related('subject', 'subject_class', 'subject__school', 'subject_class__school'),
+        source='subject'
+    )
+    exam_class_details = ExamScheduleExamClassSerializer(source='exam_class', read_only=True)
+    subject_details = ClassSubjectSupportSerializer(source='subject', read_only=True)
+    session_display = serializers.CharField(source='get_session_display', read_only=True)
+    is_active = serializers.BooleanField(read_only=True)
+
+    max_marks = serializers.FloatField(required=False, min_value=0)
+    pass_marks = serializers.FloatField(required=False, min_value=0)
+    exam_date = serializers.DateField()
+    session = serializers.ChoiceField(choices=ExamSessions.choices, required=False, allow_null=True)
+    start_time = serializers.TimeField(required=False, allow_null=True)
+    end_time = serializers.TimeField(required=False, allow_null=True)
+
+    class Meta:
+        model = ExamSchedule
+        fields = [
+            'uuid', 'exam_class_uuid', 'subject_uuid', 'exam_class_details', 'subject_details',
+            'max_marks', 'pass_marks', 'exam_date', 'session', 'session_display',
+            'start_time', 'end_time', 'is_rescheduled', 'is_cancelled', 'is_active',
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = ['uuid', 'exam_class_details', 'subject_details', 'session_display', 'is_active', 'created_at', 'updated_at']
+
+    def validate_exam_date(self, value):
+        if not value:
+            raise serializers.ValidationError("Exam date is required.")
+        return value
+
+    def validate_max_marks(self, value):
+        if value is not None and value < 0:
+            raise serializers.ValidationError("Max marks cannot be negative.")
+        return value
+
+    def validate_pass_marks(self, value):
+        if value is not None and value < 0:
+            raise serializers.ValidationError("Pass marks cannot be negative.")
+        return value
+
+    def validate(self, data):
+        school = self.context.get('school')
+        if not school:
+            return data
+
+        instance = self.instance
+        exam_class = data.get('exam_class', instance.exam_class if instance else None)
+        subject = data.get('subject', instance.subject if instance else None)
+        exam_date = data.get('exam_date', instance.exam_date if instance else None)
+        session = data.get('session', instance.session if instance else None)
+        start_time = data.get('start_time', instance.start_time if instance else None)
+        end_time = data.get('end_time', instance.end_time if instance else None)
+
+        if not exam_class:
+            raise serializers.ValidationError({"exam_class_uuid": "Exam class is required."})
+
+        if not subject:
+            raise serializers.ValidationError({"subject_uuid": "Subject is required."})
+
+        if not exam_class.exam:
+            raise serializers.ValidationError({"exam_class_uuid": "Exam class is not linked to an exam."})
+
+        if not exam_class.class_obj:
+            raise serializers.ValidationError({"exam_class_uuid": "Exam class does not have a class assigned."})
+
+        if not subject.subject or not subject.subject_class:
+            raise serializers.ValidationError({"subject_uuid": "Subject is not assigned to a class."})
+
+        if exam_class.exam.school_id != school.id:
+            raise serializers.ValidationError({"exam_class_uuid": "Exam class does not belong to this school."})
+
+        if exam_class.class_obj.school_id != school.id:
+            raise serializers.ValidationError({"exam_class_uuid": "Class does not belong to this school."})
+
+        if exam_class.exam.academic_year != school.academic_year:
+            raise serializers.ValidationError({"exam_class_uuid": "Exam class does not belong to this academic year."})
+
+        if exam_class.class_obj.academic_year != school.academic_year:
+            raise serializers.ValidationError({"exam_class_uuid": "Class does not belong to this academic year."})
+
+        if subject.subject.school_id != school.id:
+            raise serializers.ValidationError({"subject_uuid": "Subject does not belong to this school."})
+
+        if subject.subject_class.school_id != school.id:
+            raise serializers.ValidationError({"subject_uuid": "Subject class does not belong to this school."})
+
+        if subject.subject_class.academic_year != school.academic_year:
+            raise serializers.ValidationError({"subject_uuid": "Subject class does not belong to this academic year."})
+
+        if exam_class.class_obj_id != subject.subject_class_id:
+            raise serializers.ValidationError({"subject_uuid": "Subject must be assigned to the same class as the exam class."})
+
+        if exam_date and exam_class.exam:
+            if not (exam_class.exam.start_date <= exam_date <= exam_class.exam.end_date):
+                raise serializers.ValidationError({"exam_date": "Exam date must be within the exam duration."})
+
+        if session and session != ExamSessions.FULL:
+            if not start_time:
+                raise serializers.ValidationError({"start_time": "Start time is required for this session."})
+            if not end_time:
+                raise serializers.ValidationError({"end_time": "End time is required for this session."})
+
+        if (start_time and not end_time) or (end_time and not start_time):
+            raise serializers.ValidationError({"end_time": "Start time and end time must be provided together."})
+
+        if start_time and end_time and end_time <= start_time:
+            raise serializers.ValidationError({"end_time": "End time must be after start time."})
+
+        if not instance:
+            max_marks = data.get('max_marks')
+            pass_marks = data.get('pass_marks')
+        else:
+            max_marks = data.get('max_marks', instance.max_marks)
+            pass_marks = data.get('pass_marks', instance.pass_marks)
+
+        if max_marks is None:
+            max_marks = subject.max_marks
+        if pass_marks is None:
+            pass_marks = subject.pass_marks
+
+        if pass_marks > max_marks:
+            raise serializers.ValidationError({"pass_marks": "Pass marks cannot be greater than max marks."})
+
+        data['max_marks'] = max_marks
+        data['pass_marks'] = pass_marks
+
+        duplicate_query = ExamSchedule.objects.filter(
+            exam_class=exam_class,
+            subject=subject,
+            is_active=True,
+        )
+        if instance:
+            duplicate_query = duplicate_query.exclude(pk=instance.pk)
+
+        effective_is_rescheduled = data.get('is_rescheduled', instance.is_rescheduled if instance else False)
+
+        if duplicate_query.exists():
+            if effective_is_rescheduled and not duplicate_query.exclude(is_cancelled=True).exists():
+                return data
+
+            exam_name = exam_class.exam.name
+            class_name = exam_class.class_obj.class_name
+            subject_name = subject.subject.name
+            raise serializers.ValidationError({
+                "non_field_errors": [
+                    f"Exam {exam_name} already scheduled for {class_name} - {subject_name}."
+                ]
+            })
+
+        return data
+
+    @transaction.atomic
+    def create(self, validated_data):
+        return super().create(validated_data)
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        return super().update(instance, validated_data)
