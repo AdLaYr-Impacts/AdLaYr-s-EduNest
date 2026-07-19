@@ -11,7 +11,7 @@ from django.db.models import Count, Prefetch, Q
 from .models import (
     SchoolTeacher, SchoolClass, Subjects, ExamType, ClassSubjects, SubjectGroup, Students, 
     StudentParentDetails, AttendanceSession, StudentAttendance, Period,
-    ClassTimetable, ClassTimetableEntry, Exam, ExamClass,
+    ClassTimetable, ClassTimetableEntry, Exam, ExamClass, ExamSchedule,
 )
 from .serializers import (
     TeacherSerializer, SchoolClassSerializer, TeacherSummarySerializer, 
@@ -19,7 +19,7 @@ from .serializers import (
     ClassSubjectSerializer, ClassSubjectGroupSerializer, SubjectGroupSerializer,
     StudentSerializer, SchoolClassSupportSerializer, StudentSupportSerializer, 
     ClassSubjectSupportSerializer, StudentAttendanceSerializer, PeriodSerializer,
-    ClassTimetableSerializer, ExamTypeSerializer, ExamSerializer,
+    ClassTimetableSerializer, ExamTypeSerializer, ExamSerializer, ExamScheduleSerializer,
 )
 from permissions.permissions import IsSchoolAdmin, IsSchoolAdminOrClassTeacher
 from common.pagination import StandardPagination
@@ -28,7 +28,7 @@ from common.choices import UserRoles
 from rest_framework.exceptions import PermissionDenied
 from rest_framework import serializers
 
-from drf_spectacular.utils import extend_schema, extend_schema_view
+from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiExample, OpenApiParameter, OpenApiTypes
 
 @extend_schema_view(
     list=extend_schema(tags=['Teachers']),
@@ -824,6 +824,8 @@ class ExamViewSet(viewsets.ModelViewSet):
     def get_serializer_context(self):
         context = super().get_serializer_context()
         context['school'] = get_school(self)
+        if self.kwargs.get('class_uuid'):
+            context['class_uuid'] = self.kwargs.get('class_uuid')
         if getattr(self, 'exclude_exam_classes', False):
             context['exclude_exam_classes'] = True
         return context
@@ -904,3 +906,78 @@ class ExamViewSet(viewsets.ModelViewSet):
         self.exclude_exam_classes = True
         queryset = self._get_exam_list_queryset(school, class_uuid=class_uuid)
         return self._list_response(queryset, request)
+
+
+@extend_schema_view(
+    list=extend_schema(tags=['Exam Schedules']),
+    create=extend_schema(tags=['Exam Schedules']),
+    retrieve=extend_schema(tags=['Exam Schedules']),
+    update=extend_schema(tags=['Exam Schedules']),
+    partial_update=extend_schema(tags=['Exam Schedules']),
+    destroy=extend_schema(tags=['Exam Schedules']),
+)
+class ExamScheduleViewSet(viewsets.ModelViewSet):
+    serializer_class = ExamScheduleSerializer
+    permission_classes = [IsSchoolAdmin]
+    pagination_class = StandardPagination
+    lookup_field = 'uuid'
+    ordering = ['exam_date', 'start_time', 'created_at']
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = [
+        'session', 'is_rescheduled', 'is_cancelled',
+        'exam_class__exam__uuid', 'exam_class__class_obj__uuid',
+        'subject__uuid', 'subject__subject__uuid', 'exam_class__exam__academic_year'
+    ]
+    search_fields = [
+        'exam_class__exam__name', 'exam_class__class_obj__class_name',
+        'exam_class__class_obj__section', 'subject__subject__name',
+        'subject__subject__code'
+    ]
+    ordering_fields = ['created_at', 'exam_date', 'start_time', 'end_time', 'max_marks', 'pass_marks']
+
+    def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False):
+            return ExamSchedule.objects.none()
+
+        school = get_school(self)
+        queryset = ExamSchedule.objects.filter(
+            is_active=True,
+            exam_class__exam__school=school,
+            exam_class__class_obj__school=school,
+            subject__subject_class__school=school,
+            subject__subject__school=school,
+        ).select_related(
+            'exam_class',
+            'exam_class__exam',
+            'exam_class__class_obj',
+            'exam_class__class_obj__school',
+            'subject',
+            'subject__subject',
+            'subject__subject_class',
+            'subject__subject_class__school',
+        ).distinct()
+
+        if self.action == 'list':
+            academic_year = self.request.query_params.get('academic_year', school.academic_year)
+            try:
+                academic_year = int(academic_year)
+            except (TypeError, ValueError):
+                raise serializers.ValidationError({"academic_year": "Academic year must be a valid integer."})
+
+            queryset = queryset.filter(
+                exam_class__exam__academic_year=academic_year,
+                exam_class__class_obj__academic_year=academic_year,
+                subject__subject_class__academic_year=academic_year,
+            )
+
+        return queryset
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context['school'] = get_school(self)
+        return context
+
+    @transaction.atomic
+    def update(self, request, *args, **kwargs):
+        kwargs['partial'] = True
+        return super().update(request, *args, **kwargs)

@@ -541,7 +541,6 @@ class ExamSchedule(BaseModel):
     is_cancelled = models.BooleanField(default=False)
 
     class Meta:
-        unique_together = ['exam_class', 'subject']
         ordering = ["-created_at"]
         verbose_name = 'Exam Schedule'
         verbose_name_plural = 'Exam Schedules'
@@ -550,8 +549,14 @@ class ExamSchedule(BaseModel):
         if not (self.exam_class.exam.start_date <= self.exam_date <= self.exam_class.exam.end_date):
             raise ValidationError("Exam date must be within exam duration")
         
-        if self.session != 'full' and not (self.start_time and self.end_time):
+        if self.session and self.session != ExamSessions.FULL and not (self.start_time and self.end_time):
             raise ValidationError("Start and End time required")
+
+        if (self.start_time and not self.end_time) or (self.end_time and not self.start_time):
+            raise ValidationError("Start and End time must be provided together")
+
+        if self.start_time and self.end_time and self.end_time <= self.start_time:
+            raise ValidationError("End time must be after start time")
         
     def __str__(self):
         return f"[{self.id}] {self.exam_class.exam.name} {self.exam_class.class_obj.class_name} {self.subject.subject.name}"
