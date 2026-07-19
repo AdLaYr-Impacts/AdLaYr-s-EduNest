@@ -824,6 +824,8 @@ class ExamViewSet(viewsets.ModelViewSet):
     def get_serializer_context(self):
         context = super().get_serializer_context()
         context['school'] = get_school(self)
+        if self.kwargs.get('class_uuid'):
+            context['class_uuid'] = self.kwargs.get('class_uuid')
         if getattr(self, 'exclude_exam_classes', False):
             context['exclude_exam_classes'] = True
         return context

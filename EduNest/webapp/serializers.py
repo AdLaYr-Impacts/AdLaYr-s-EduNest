@@ -2309,6 +2309,7 @@ class ExamSerializer(serializers.ModelSerializer):
         allow_empty=True
     )
     exam_classes = ExamClassSerializer(many=True, read_only=True)
+    exam_class_uuid = serializers.SerializerMethodField(read_only=True)
     save_as_draft = serializers.BooleanField(write_only=True, required=False, default=False)
     publish = serializers.BooleanField(write_only=True, required=False, default=False)
     academic_year = serializers.IntegerField(read_only=True)
@@ -2321,7 +2322,7 @@ class ExamSerializer(serializers.ModelSerializer):
         model = Exam
         fields = [
             'uuid', 'name', 'academic_year', 'exam_type', 'exam_type_detail',
-            'classes', 'exam_classes', 'start_date', 'end_date', 'save_as_draft',
+            'classes', 'exam_classes', 'exam_class_uuid', 'start_date', 'end_date', 'save_as_draft',
             'publish', 'status', 'status_display', 'is_locked', 'created_by',
             'is_active', 'created_at', 'updated_at'
         ]
@@ -2508,6 +2509,21 @@ class ExamSerializer(serializers.ModelSerializer):
             representation.pop('exam_classes', None)
         return representation
 
+    def get_exam_class_uuid(self, instance):
+        class_uuid = self.context.get('class_uuid')
+        if not class_uuid:
+            return None
+
+        exam_class = next(
+            (
+                exam_class
+                for exam_class in instance.exam_classes.all()
+                if str(getattr(exam_class.class_obj, 'uuid', '')) == str(class_uuid)
+            ),
+            None,
+        )
+        return str(exam_class.uuid) if exam_class else None
+
 
 class ExamScheduleExamClassSerializer(serializers.ModelSerializer):
     exam_uuid = serializers.UUIDField(source='exam.uuid', read_only=True)
@@ -2675,10 +2691,11 @@ class ExamScheduleSerializer(serializers.ModelSerializer):
 
             exam_name = exam_class.exam.name
             class_name = exam_class.class_obj.class_name
+            class_section = exam_class.class_obj.section
             subject_name = subject.subject.name
             raise serializers.ValidationError({
                 "non_field_errors": [
-                    f"Exam {exam_name} already scheduled for {class_name} - {subject_name}."
+                    f"Exam {exam_name} already scheduled for {class_name}-{class_section} for Subject: {subject_name}."
                 ]
             })
 
