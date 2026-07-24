@@ -43,9 +43,9 @@ class MarkAdmin(admin.ModelAdmin):
 
 @admin.register(StudentMark, site=admin_site)
 class StudentMarkAdmin(admin.ModelAdmin):
-    list_display = ('id', 'exam_schedule', 'student_exam', 'marks_obtained', 'is_absent', 'is_active')
+    list_display = ('id', 'exam_schedule', 'consolidated_mark', 'marks_obtained', 'is_absent', 'is_active')
     list_filter = ('exam_schedule__exam_class__exam__school', 'is_absent', 'is_active')
-    search_fields = ('student_exam__student__user__first_name', 'exam_schedule__subject__subject__name')
+    search_fields = ('consolidated_mark__student__user__first_name', 'exam_schedule__subject__subject__name')
 
 @admin.register(EventResponse, site=admin_site)
 class EventResponseAdmin(admin.ModelAdmin):

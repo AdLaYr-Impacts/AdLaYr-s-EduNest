@@ -611,10 +611,10 @@ class StudentMark(BaseModel):
         on_delete=models.CASCADE,
         related_name="marks"
     )
-    student_exam = models.ForeignKey(
+    consolidated_mark = models.ForeignKey(
         Mark,
         on_delete=models.CASCADE,
-        related_name="subject_marks"
+        related_name="consolidated_marks"
     )
     marks_obtained = models.FloatField(null=True, blank=True)
     is_absent = models.BooleanField(default=False)
@@ -627,7 +627,7 @@ class StudentMark(BaseModel):
     )
 
     class Meta:
-        unique_together = ['exam_schedule', 'student_exam']
+        unique_together = ['exam_schedule', 'consolidated_mark']
         ordering = ["-created_at"]
         verbose_name = 'Exam Schedule'
         verbose_name_plural = 'Exam Schedules'
@@ -642,7 +642,7 @@ class StudentMark(BaseModel):
 
     def __str__(self):
         return f"""
-        [{self.id}] {self.student_exam.student.user.get_full_name()}
+        [{self.id}] {self.consolidated_mark.student.user.get_full_name()}
         {self.exam_schedule.subject.subject.name} {self.marks_obtained}
     """
 
